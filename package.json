@@ -1,0 +1,70 @@
+{
+  "name": "dsh-aether-theme",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "以太主题：DSH 桌面版的背景 + 毛玻璃 + 对比度兜底主题引擎。零布局侵入、逐字节回滚、模块化按需加载；WCAG 动态反解、智能色彩衍生、壁纸轮换/时段/分类锁定、JSON 主题包导入导出、服务注入、屏幕内诊断面板。",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./icon": "./icon.svg",
+    "./locale/zh.json": "./locale/zh.json",
+    "./locale/en.json": "./locale/en.json",
+    "./assets/*.svg": "./assets/*.svg",
+    "./docs/*.md": "./docs/*.md"
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "src",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "assets",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "build": "node src/build.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ]
+    }
+  },
+  "icon": "./icon.svg",
+  "displayName": "以太主题",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/feiyu-whale-05/dsh-aether-theme.git"
+  },
+  "homepage": "https://github.com/feiyu-whale-05/dsh-aether-theme",
+  "bugs": {
+    "url": "https://github.com/feiyu-whale-05/dsh-aether-theme/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "theme",
+    "wallpaper",
+    "glass",
+    "accessibility",
+    "wcag"
+  ]
+}
