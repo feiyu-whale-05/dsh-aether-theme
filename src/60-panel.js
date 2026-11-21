@@ -463,6 +463,16 @@ function WallpaperTab(cfg, mutate, tick, uploadRef, uploadCategory, setUploadCat
 				: h('div', { className: 'aeth-note' }, t('state.empty')),
 		),
 		h('div', { className: 'aeth-card' },
+			h('h3', null, '壁纸亮度与压暗'),
+			sliderRow('壁纸亮度（filter，不盖遮罩）', wallpaper.brightness === undefined ? 0.85 : wallpaper.brightness, 0.3, 1.4, 0.05, function (value) {
+				mutate(function (draft) { draft.wallpaper.brightness = value; }, { wallpaper: true });
+			}),
+			sliderRow('压暗遮罩（黑色蒙层，建议留 0）', wallpaper.dim === undefined ? 0 : wallpaper.dim, 0, 1, 0.02, function (value) {
+				mutate(function (draft) { draft.wallpaper.dim = value; }, { wallpaper: true });
+			}),
+			h('div', { className: 'aeth-note' }, '亮度直接调壁纸本身（不影响文字）；压暗是额外的一层黑色遮罩，会把文字一起压暗。'),
+		),
+		h('div', { className: 'aeth-card' },
 			h('h3', null, t('label.rotation')),
 			toggleRow(t('label.rotation'), rotation.enabled, function (value) {
 				mutate(function (draft) { draft.wallpaper.rotation.enabled = value; }, { wallpaper: true });
