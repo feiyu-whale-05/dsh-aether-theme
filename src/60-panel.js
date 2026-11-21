@@ -538,17 +538,37 @@ function GlassTab(cfg, mutate) {
 		),
 		h('div', { className: 'aeth-card' },
 			h('h3', null, t('label.inputFill')),
-			chipsRow('填充模式', [
-				{ value: 'frosted', label: t('input.frosted') },
-				{ value: 'solid', label: t('input.solid') },
-				{ value: 'transparent', label: t('input.transparent') },
-				{ value: 'tinted', label: t('input.tinted') },
-				{ value: 'bordered', label: t('input.bordered') },
-				{ value: 'accent', label: t('input.accent') },
-				{ value: 'wenxin', label: '文心渐变边框' },
-			], glass.inputFill, function (value) {
-				mutate(function (draft) { draft.glass.inputFill = value; }, { wallpaper: false });
-			}),
+			row('填充模式（可多选叠加）',
+				h('div', { className: 'aeth-chips' },
+					[
+						['frosted', t('input.frosted') + ' · 底色'],
+						['solid', t('input.solid') + ' · 底色'],
+						['transparent', t('input.transparent') + ' · 底色'],
+						['tinted', t('input.tinted') + ' · 底色'],
+						['accent', t('input.accent') + ' · 底色'],
+						['bordered', t('input.bordered') + ' · 边框'],
+						['wenxin', '文心渐变 · 边框'],
+					].map(function (pair) {
+						var list = Array.isArray(glass.inputFills) ? glass.inputFills : ['frosted'];
+						var on = list.indexOf(pair[0]) !== -1;
+						return h('button', {
+							key: pair[0],
+							className: 'aeth-chip' + (on ? ' on' : ''),
+							onClick: function () {
+								mutate(function (draft) {
+									var next = Array.isArray(draft.glass.inputFills) ? draft.glass.inputFills.slice() : [];
+									var index = next.indexOf(pair[0]);
+									if (index === -1) next.push(pair[0]); else next.splice(index, 1);
+									if (!next.length) next = ['frosted'];
+									draft.glass.inputFills = next;
+								}, { wallpaper: false });
+							},
+						}, pair[1]);
+					}),
+				),
+			),
+			h('div', { className: 'aeth-note', style: { marginLeft: '160px', marginTop: '-4px' } },
+				'底色类只生效优先级最高的一个（实色 > 磨砂 > 透明 > 淡染 > 主色 > 描边）；文心渐变是边框层，可与任意底色叠加。'),
 			sliderRow('填充不透明度', glass.inputFillOpacity, 0, 1, 0.01, function (value) {
 				mutate(function (draft) { draft.glass.inputFillOpacity = value; }, { wallpaper: false });
 			}),
