@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.9';
+		var VERSION = '1.0.10';
 
 		var A = {
 			ctx: null,
@@ -996,20 +996,24 @@ window.__ModuleLoader__.load({
 				'  box-shadow: none !important;',
 				'}',
 				'html[data-dsh-aether][data-aether-input="wenxin"] div:has(> [contenteditable="true"]:not(.cm-content)):not(.aeth-root div) {',
-				'  border: 1px solid transparent !important;',
+				'  border: 1.5px solid transparent !important;',
 				'  border-radius: 20px !important;',
-				'  transition: box-shadow .25s ease;',
+				'  transition: box-shadow .25s ease, background .25s ease;',
 				'}',
 				'html[data-dsh-aether][data-aether-input="wenxin"] div:has(> [contenteditable="true"]:not(.cm-content)):focus-within:not(.aeth-root div) {',
 				'  background: linear-gradient(var(--aether-input-inner, #15171c), var(--aether-input-inner, #15171c)) padding-box,',
-				'    linear-gradient(90deg, var(--aether-wenxin-a, #3d7dfe), var(--aether-wenxin-b, #6a59fe), var(--aether-wenxin-c, #9142ff), var(--aether-wenxin-a, #3d7dfe)) border-box !important;',
-				'  background-size: 100% 100%, 200% 100% !important;',
-				'  animation: aether-border-flow 3.6s linear infinite;',
-				'  box-shadow: 0 0 0 3px color-mix(in srgb, var(--aether-wenxin-b, #6a59fe) 24%, transparent) !important;',
+				'    linear-gradient(100deg, var(--aether-wenxin-a, #3d7dfe), var(--aether-wenxin-b, #6a59fe), #b98bff, var(--aether-wenxin-c, #9142ff), var(--aether-wenxin-b, #6a59fe), var(--aether-wenxin-a, #3d7dfe)) border-box !important;',
+				'  background-size: 100% 100%, 220% 100% !important;',
+				'  animation: aether-border-flow var(--aether-border-speed, 2.6s) linear infinite,',
+				'             aether-border-glow 3.2s ease-in-out infinite;',
 				'}',
 				'@keyframes aether-border-flow {',
 				'  from { background-position: 0% 50%, 0% 50%; }',
-				'  to { background-position: 0% 50%, 200% 50%; }',
+				'  to { background-position: 0% 50%, 220% 50%; }',
+				'}',
+				'@keyframes aether-border-glow {',
+				'  0%, 100% { box-shadow: 0 0 0 2px rgba(106, 89, 254, .16), 0 0 16px rgba(106, 89, 254, .10) !important; }',
+				'  50% { box-shadow: 0 0 0 3px rgba(106, 89, 254, .30), 0 0 26px rgba(106, 89, 254, .20) !important; }',
 				'}',
 				// 面板/设置页内容放大 + 按钮文字色
 				'html[data-dsh-aether] .aeth-root { padding: 16px 18px 24px; max-width: 980px; margin: 0 auto; color: var(--dsw-alias-label-primary, #e8eaed); }',
@@ -1084,6 +1088,7 @@ window.__ModuleLoader__.load({
 				'.aeth-diag-overlay { position:fixed; right:14px; top:14px; z-index:2147482500; width:290px; border-radius:12px; border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.16)); background: var(--dsw-specific-menu, rgba(18,20,26,.94)); color: var(--dsw-alias-label-primary,#e8eaed); font-size:11px; padding:10px 12px; box-shadow: 0 14px 34px rgba(0,0,0,.4); }',
 				'.aeth-diag-overlay .aeth-diag-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-weight:600; }',
 				'@media (prefers-reduced-motion: reduce) {',
+				'  html[data-dsh-aether][data-aether-input="wenxin"] div:focus-within:not(.aeth-root div) { animation: none !important; }',
 				'  #dsh-aether-stage > .aether-wall { transition-duration: 0ms; }',
 				'  #dsh-aether-stage .aether-css { animation: none !important; }',
 				'  .aeth-boot .aeth-boot-mark { animation: none; border-color:#7aa2ff; }',
