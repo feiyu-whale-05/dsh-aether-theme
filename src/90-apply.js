@@ -94,19 +94,27 @@ function watchThemeChanges(ctx) {
 	} catch (error) { /* ignore */ }
 }
 
+function registerSlot(ctx, name, factory, label) {
+	try {
+		ctx.slots.inject(name, factory);
+	} catch (error) {
+		pushLog('error', '槽位注册失败：' + (label || name), { slot: name, message: String(error && error.message) });
+	}
+}
+
 function subscribeSlots(ctx) {
-	ctx.slots.inject('sidebar.panellist', function () {
+	registerSlot(ctx, 'sidebar.panellist', function () {
 		return ctx.slots.register({
 			name: 'sidebar.panellist',
 			id: PANEL_ID,
 			order: 26,
 			label: function () { return t('panel.title'); },
 		}, AetherRailIcon);
-	});
-	ctx.slots.inject('main', function () {
+	}, 'sidebar.panellist');
+	registerSlot(ctx, 'main', function () {
 		return ctx.slots.register({ name: 'main', key: PANEL_ID }, AetherPanel);
-	});
-	ctx.slots.inject('settings.section', function () {
+	}, 'main');
+	registerSlot(ctx, 'settings.section', function () {
 		return ctx.slots.register({
 			name: 'settings.section',
 			id: PANEL_ID,
@@ -114,17 +122,17 @@ function subscribeSlots(ctx) {
 			label: function () { return t('nav.settings'); },
 			locale: 'aether-theme',
 		}, AetherSettingsSection);
-	});
-	ctx.slots.inject('settings.section.icon', function () {
+	}, 'settings.section');
+	registerSlot(ctx, 'settings.section.icon', function () {
 		return ctx.slots.register({
 			name: 'settings.section.icon',
 			id: PANEL_ID,
 			order: 58,
 		}, AetherNavIcon);
-	});
-	ctx.slots.inject('shell.overlay', function () {
+	}, 'settings.section.icon');
+	registerSlot(ctx, 'shell.overlay', function () {
 		return ctx.slots.register({ name: 'shell.overlay', key: PANEL_ID }, AetherOverlayHost);
-	});
+	}, 'shell.overlay');
 }
 
 var apply = function apply(ctx) {
