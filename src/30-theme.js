@@ -124,14 +124,26 @@ function accentFromWallpaper() {
 
 /** 输入框的「有效底色」：半透明输入框叠在壁纸上，用于光标/文字可读性反解。 */
 function inputEffectiveColor(panel, wallpaperColor, alpha) {
-	var fill = A.cfg && A.cfg.glass ? A.cfg.glass.inputFill : 'frosted';
+	var fillList = A.cfg && A.cfg.glass ? (Array.isArray(A.cfg.glass.inputFills) ? A.cfg.glass.inputFills : ['frosted']) : ['frosted'];
+	var fill = fillList.indexOf('transparent') !== -1 || fillList.indexOf('bordered') !== -1 ? 'transparent' : 'frosted';
 	var localAlpha = fill === 'transparent' || fill === 'bordered' ? 0.06 : Math.max(clamp(alpha, 0, 1), 0.5);
 	return composite({ r: panel.r, g: panel.g, b: panel.b, a: localAlpha }, wallpaperColor);
 }
 
-/** 输入框 6 种填充模式 → 实际底色/边框。 */
-function inputFillColor(mode, panel, accent, ink) {
+/** 输入框底色 + 边框组合（可多选叠加：磨砂底 + 渐变边框 + 描边…）。 */
+function inputFillColor(modeInput, panel, accent, ink) {
 	var opacity = A.cfg && A.cfg.glass ? clamp(A.cfg.glass.inputFillOpacity, 0, 1) : 0.6;
+	var list = Array.isArray(modeInput) ? modeInput : [modeInput || 'frosted'];
+	var fillKinds = ['solid', 'frosted', 'transparent', 'tinted', 'accent', 'bordered'];
+	var mode = 'frosted';
+	for (var i = 0; i < list.length; i += 1) {
+		if (fillKinds.indexOf(list[i]) !== -1) { mode = list[i]; break; }
+	}
+	if (list.indexOf('wenxin') !== -1) {
+		// 渐变边框由 CSS 的 border-box 层负责；底色仍按选中的填充类走
+		var inner = inputFillColor(mode, panel, accent, ink);
+		return { bg: inner.bg === 'rgba(0,0,0,0)' ? rgba(panel, 0.55) : inner.bg, border: 'transparent' };
+	}
 	switch (mode) {
 		case 'solid':
 			return { bg: toHex(panel), border: rgba(ink, 0.14) };
@@ -143,9 +155,7 @@ function inputFillColor(mode, panel, accent, ink) {
 			return { bg: 'rgba(0,0,0,0)', border: rgba(ink, 0.38) };
 		case 'accent':
 			return { bg: rgba(parseColor(accent), 0.16), border: rgba(parseColor(accent), 0.46) };
-		case 'wenxin':
-			// 渐变边框由 CSS 的 border-box 层负责，这里只给内层底色
-			return { bg: 'transparent', border: 'transparent' };
+
 		case 'frosted':
 		default:
 			return { bg: rgba(panel, opacity), border: rgba(ink, 0.16) };
@@ -257,7 +267,8 @@ function applyAppearance(reason) {
 	var border3 = rgba(ink, borderStrength * 1.6);
 	var border4 = rgba(ink, borderStrength * 2.2);
 
-	var input = inputFillColor(glass.inputFill || 'frosted', panel, accentHex, ink);
+	var inputFills = Array.isArray(glass.inputFills) ? glass.inputFills : ['frosted'];
+	var input = inputFillColor(inputFills, panel, accentHex, ink);
 
 	// 官方品牌蓝：深色主题用 deepseek-400（#7aa2ff，DSH 原生「亮蓝」），浅色用 deepseek-500。
 	// 光标 / 侧栏工作区选中图标 / 审批允许按钮 / 链接 / 焦点环 固定用它，不跟壁纸取色，
@@ -321,7 +332,7 @@ function applyAppearance(reason) {
 		setVar('--aether-wenxin-a', dark ? '#3d7dfe' : '#2f6bff');
 		setVar('--aether-wenxin-b', dark ? '#6a59fe' : '#5b48f0');
 		setVar('--aether-wenxin-c', dark ? '#9142ff' : '#7b2ee0');
-		if (glass.inputFill === 'wenxin') {
+		if (Array.isArray(glass.inputFills) && glass.inputFills.indexOf('wenxin') !== -1) {
 			document.documentElement.setAttribute('data-aether-input', 'wenxin');
 		} else {
 			document.documentElement.removeAttribute('data-aether-input');
