@@ -256,16 +256,24 @@ function applyAppearance(reason) {
 
 	var input = inputFillColor(glass.inputFill || 'frosted', panel, accentHex, ink);
 
-	// 可读强调色：按钮底 / 链接 / 状态点 / 侧栏选中图标 / 光标 都用校准后的版本
+	// 官方品牌蓝：深色主题用 deepseek-400（#7aa2ff，DSH 原生「亮蓝」），浅色用 deepseek-500。
+	// 光标 / 侧栏工作区选中图标 / 审批允许按钮 / 链接 / 焦点环 固定用它，不跟壁纸取色，
+	// 保证永远是官方那抹蓝。文字色按 contrast 反解（亮蓝底给深字）。
+	var brandBlue = dark ? '#7aa2ff' : '#4176e6';
+	var brandBlueHover = dark ? '#9ab8ff' : '#2f5fcc';
+	var brandBlueInk = inkOn(brandBlue, 4.5);
+	var caretColor = brandBlue;
 	var sidebarSurface = composite({ r: panel.r, g: panel.g, b: panel.b, a: alphaSidebar }, wallpaperAvg);
 	var accentReadable = readableOn(accentHex, sidebarSurface, 4.5);
 	var accentInk = inkOn(accentHex, 4.5);
-	var caretColor = readableOn(accentHex, inputEffectiveColor(panel, wallpaperAvg, alphaInput), 4.5);
 
 	var vars = {
 		'--aether-accent': palette.accent,
 		'--aether-accent-readable': accentReadable,
 		'--aether-accent-ink': accentInk,
+		'--aether-brand-blue': brandBlue,
+		'--aether-brand-blue-hover': brandBlueHover,
+		'--aether-brand-blue-ink': brandBlueInk,
 		'--aether-caret': caretColor,
 		'--aether-accent-soft': palette.accentSoft,
 		'--aether-accent-strong': palette.accentStrong,
@@ -318,6 +326,9 @@ function applyAppearance(reason) {
 			setVar('--aether-accent-strong', pixelPalette.accent);
 			setVar('--aether-accent-readable', pixelPalette.accent);
 			setVar('--aether-accent-ink', inkOn(pixelPalette.accent, 4.5));
+			setVar('--aether-brand-blue', pixelPalette.accent);
+			setVar('--aether-brand-blue-hover', pixelPalette.inkSoft);
+			setVar('--aether-brand-blue-ink', inkOn(pixelPalette.accent, 4.5));
 			setVar('--aether-caret', pixelPalette.ink);
 			setVar('--aether-label-primary', pixelPalette.ink);
 			setVar('--aether-label-secondary', pixelPalette.inkSoft);
