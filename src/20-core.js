@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.2';
+var VERSION = '1.0.3';
 
 var A = {
 	ctx: null,
@@ -436,7 +436,12 @@ function defaultConfigFallback() {
 		theme: {
 			palette: 'auto', accent: '#7aa2ff', secondary: '#9d7cff', deriveFromWallpaper: true,
 			contrastTarget: 7, mixMode: 'multiply', transitionMs: 420, reducedMotion: 'auto',
+			strongColor: '#ffe6a3', fontFamily: '', fontSize: 0,
 		},
+		bubble: { official: true, color: '#dbe7ff', opacity: 0.62 },
+		panel: { scale: 1.15 },
+		meteor: { enabled: false, density: 1, hue: 222 },
+		userMd: { enabled: true },
 		wallpaper: {
 			mode: 'none', source: 'preset', id: '', cssPreset: 'aurora', fit: 'cover',
 			dim: 0.32, blur: 0,
@@ -546,8 +551,7 @@ function buildStyleText() {
 		'  --dsw-specific-menu: var(--aether-menu-fill) !important;',
 		'  --dsw-specific-input-major: var(--aether-input-fill) !important;',
 		'  --dsw-specific-selector: var(--aether-input-fill) !important;',
-		'  --dsw-specific-bubble: var(--aether-bubble-fill) !important;',
-		'  --dsw-specific-bubble-highlight: var(--aether-bubble-highlight) !important;',
+
 		'  --dsw-alias-markdown-code-block: var(--aether-code-bg) !important;',
 		'  --dsw-alias-markdown-code-block-banner: var(--aether-code-banner) !important;',
 		'  --dsw-alias-markdown-inline-code: var(--aether-inline-code) !important;',
@@ -564,12 +568,15 @@ function buildStyleText() {
 		'  --dsw-alias-button-primary-fill: var(--aether-brand-blue) !important;',
 		'  --dsw-alias-button-primary-hover: var(--aether-brand-blue-hover) !important;',
 		'  --dsw-alias-link: var(--aether-brand-blue) !important;',
-		'  --dsw-alias-label-primary-foreground: var(--aether-brand-blue-ink) !important;',
-		'  --dsw-alias-label-on-color: var(--aether-brand-blue-ink) !important;',
 		'  --dsw-specific-sidebar-nav-item-active-accent: var(--aether-brand-blue) !important;',
 		'  --dsw-focus-ring-color: var(--aether-brand-blue) !important;',
 		'  --dsw-alias-state-business-primary: var(--aether-brand-blue) !important;',
 		'  --dsw-alias-state-business-secondary: var(--aether-brand-blue) !important;',
+		'}',
+		// 用户气泡：默认官方样式；只有 data-aether-bubble="custom" 时才接管
+		'html[data-dsh-aether][data-aether-bubble="custom"] body {',
+		'  --dsw-specific-bubble: var(--aether-bubble-fill) !important;',
+		'  --dsw-specific-bubble-highlight: var(--aether-bubble-highlight) !important;',
 		'}',
 		// 浅色分支兜底：变量缺失时也不出现「白底白字」
 		'html[data-dsh-aether] body:not([data-ds-dark-theme]) {',
@@ -618,7 +625,42 @@ function buildStyleText() {
 		'html[data-dsh-aether] input, html[data-dsh-aether] textarea, html[data-dsh-aether] [contenteditable="true"], html[data-dsh-aether] [data-composer-input] { caret-color: var(--aether-caret) !important; }',
 		'#dsh-aether-scan { position:fixed; inset:0; z-index:2147483000; pointer-events:none; background: repeating-linear-gradient(180deg, rgba(0,0,0,var(--aether-scanline, .08)) 0px, rgba(0,0,0,var(--aether-scanline, .08)) 1px, transparent 1px, transparent 3px); mix-blend-mode: multiply; }',
 		// 插件自己的面板/设置页样式（前缀 .aeth-，与宿主隔离）
-		'.aeth-root { padding: 16px 18px 24px; max-width: 980px; margin: 0 auto; color: var(--dsw-alias-label-primary, #e8eaed); }',
+		// 模型输出里的 **重点**：亮黄偏白（不动插件自己的面板）
+		'html[data-dsh-aether] strong { color: var(--aether-strong, #ffe6a3) !important; font-weight: 650; }',
+		'html[data-dsh-aether] .aeth-root strong { color: inherit !important; font-weight: 600; }',
+		// 文心式渐变边框输入框（data-aether-input="wenxin" 时启用）
+		'html[data-dsh-aether][data-aether-input="wenxin"] [contenteditable="true"]:not(.cm-content):not(.aeth-root [contenteditable]) {',
+		'  border: 1px solid transparent !important;',
+		'  border-radius: 18px !important;',
+		'  background: linear-gradient(var(--aether-input-inner, #15171c), var(--aether-input-inner, #15171c)) padding-box,',
+		'    linear-gradient(to right, var(--aether-wenxin-a, #3d7dfe) 0%, var(--aether-wenxin-b, #6a59fe) 60%, var(--aether-wenxin-c, #9142ff) 100%) border-box !important;',
+		'  transition: box-shadow .2s ease, background .2s ease;',
+		'}',
+		'html[data-dsh-aether][data-aether-input="wenxin"] [contenteditable="true"]:not(.cm-content):focus {',
+		'  box-shadow: 0 0 0 3px color-mix(in srgb, var(--aether-wenxin-b, #6a59fe) 26%, transparent) !important;',
+		'}',
+		// 面板/设置页内容放大 + 按钮文字色
+		'html[data-dsh-aether] .aeth-root { padding: 16px 18px 24px; max-width: 980px; margin: 0 auto; color: var(--dsw-alias-label-primary, #e8eaed); }',
+		'html[data-dsh-aether] .aeth-root[data-aeth-surface="panel"] { zoom: var(--aether-panel-scale, 1.15); }',
+		'.aeth-root .aeth-btn { color: var(--dsw-alias-label-primary, #e8eaed) !important; }',
+		'.aeth-root .aeth-btn.primary { color: #0b0f16 !important; font-weight: 600; }',
+		'.aeth-root .aeth-btn.danger { color: var(--dsw-alias-state-error-primary, #e06c75) !important; }',
+		'.aeth-root .aeth-chip { color: var(--dsw-alias-label-secondary, #c3c7ce) !important; }',
+		'.aeth-root .aeth-chip.on { color: #0b0f16 !important; }',
+		'.aeth-root .aeth-tab { color: var(--dsw-alias-label-secondary, #c3c7ce) !important; }',
+		'.aeth-root .aeth-tab.on { color: var(--dsw-alias-label-primary, #e8eaed) !important; }',
+		// 用户消息 markdown 渲染层
+		'.aeth-md { display: block; white-space: normal; word-break: break-word; }',
+		'.aeth-md p { margin: 0 0 .5em; }',
+		'.aeth-md p:last-child { margin-bottom: 0; }',
+		'.aeth-md code { padding: .1em .35em; border-radius: 4px; background: var(--dsw-alias-markdown-inline-code, rgba(255,255,255,.12)); font-family: var(--dsw-font-mono, monospace); font-size: .92em; }',
+		'.aeth-md pre { padding: 10px 12px; border-radius: 8px; background: var(--aether-code-bg, rgba(0,0,0,.42)); overflow: auto; margin: .4em 0; }',
+		'.aeth-md pre code { background: transparent; padding: 0; }',
+		'.aeth-md ul, .aeth-md ol { margin: .3em 0; padding-left: 1.4em; }',
+		'.aeth-md a { color: var(--aether-brand-blue, #7aa2ff); text-decoration: underline; text-underline-offset: 2px; }',
+		'.aeth-md del { opacity: .7; }',
+		// 流星尾缀画布
+		'#dsh-aether-meteor { position: fixed; inset: 0; z-index: 2147482999; pointer-events: none; }',
 		'.aeth-head { display:flex; gap:10px; align-items:baseline; margin-bottom: 12px; flex-wrap: wrap; }',
 		'.aeth-title { font-size: 16px; font-weight: 600; }',
 		'.aeth-sub { color: var(--dsw-alias-label-caption, #8b95a3); font-size: 12px; }',
