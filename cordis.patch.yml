@@ -1,0 +1,16 @@
+# dsh-aether-theme bundle patch：一个 Host 行。
+#
+# 行里的 config 全部有代码默认值（见 lib/config.js）。想改行为，优先在
+# profile 自己的 cordis.patch.yml 里按 id 覆盖（同 id 覆盖会整体替换 config，
+# 要保留的字段必须全部重写）。
+#
+#   - id: aether-theme
+#     config:
+#       logDir: D:/DSH-plugins/log/dsh-aether-theme   # 日志目录（记忆六件套：每插件一个文件夹）
+#       dataDir: ''                                    # 配置/壁纸库根（默认 ~/.dsh/aether-theme）
+#       maxWallpaperMB: 512                            # 单个壁纸文件上限（流式落盘，不占内存）
+#       canary: true                                   # 宿主 DOM 契约金丝雀
+#       routePrefix: /dsh-aether                       # HTTP API 前缀
+- insert:
+    - id: aether-theme
+      name: dsh-aether-theme
