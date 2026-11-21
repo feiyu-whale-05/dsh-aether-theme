@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.6';
+		var VERSION = '1.0.7';
 
 		var A = {
 			ctx: null,
@@ -724,9 +724,12 @@ window.__ModuleLoader__.load({
 		function migrateBlurOff(cfg) {
 			try {
 				if (!cfg || !cfg.glass) return cfg;
-				if (cfg.glass.backgroundBlur === 8) cfg.glass.backgroundBlur = 0;
-				if (cfg.glass.glassBlur === 18) cfg.glass.glassBlur = 0;
-				if (cfg.glass.glassBlur === 18 || cfg.glass.backgroundBlur === 8) saveConfig('migrate-blur');
+				var dirty = false;
+				if (cfg.glass.backgroundBlur === 8) { cfg.glass.backgroundBlur = 0; dirty = true; }
+				if (cfg.glass.glassBlur === 18) { cfg.glass.glassBlur = 0; dirty = true; }
+				// 壁纸压暗遮罩：旧默认 0.32 视为「没调过」，归零（去灰罩）
+				if (cfg.wallpaper && cfg.wallpaper.dim === 0.32) { cfg.wallpaper.dim = 0; dirty = true; }
+				if (dirty) saveConfig('migrate-blur');
 			} catch (error) { /* ignore */ }
 			return cfg;
 		}
