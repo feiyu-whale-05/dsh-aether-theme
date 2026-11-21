@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.10';
+var VERSION = '1.0.11';
 
 var A = {
 	ctx: null,
@@ -705,12 +705,12 @@ function buildStyleText() {
 		'  border-radius: 0 !important;',
 		'  box-shadow: none !important;',
 		'}',
-		'html[data-dsh-aether][data-aether-input="wenxin"] div:has(> [contenteditable="true"]:not(.cm-content)):not(.aeth-root div) {',
+		'html[data-dsh-aether][data-aether-input="wenxin"] [data-aether-input-host] {',
 		'  border: 1.5px solid transparent !important;',
 		'  border-radius: 20px !important;',
 		'  transition: box-shadow .25s ease, background .25s ease;',
 		'}',
-		'html[data-dsh-aether][data-aether-input="wenxin"] div:has(> [contenteditable="true"]:not(.cm-content)):focus-within:not(.aeth-root div) {',
+		'html[data-dsh-aether][data-aether-input="wenxin"] [data-aether-input-host]:focus-within {',
 		'  background: linear-gradient(var(--aether-input-inner, #15171c), var(--aether-input-inner, #15171c)) padding-box,',
 		'    linear-gradient(100deg, var(--aether-wenxin-a, #3d7dfe), var(--aether-wenxin-b, #6a59fe), #b98bff, var(--aether-wenxin-c, #9142ff), var(--aether-wenxin-b, #6a59fe), var(--aether-wenxin-a, #3d7dfe)) border-box !important;',
 		'  background-size: 100% 100%, 220% 100% !important;',
@@ -798,13 +798,54 @@ function buildStyleText() {
 		'.aeth-diag-overlay { position:fixed; right:14px; top:14px; z-index:2147482500; width:290px; border-radius:12px; border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.16)); background: var(--dsw-specific-menu, rgba(18,20,26,.94)); color: var(--dsw-alias-label-primary,#e8eaed); font-size:11px; padding:10px 12px; box-shadow: 0 14px 34px rgba(0,0,0,.4); }',
 		'.aeth-diag-overlay .aeth-diag-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-weight:600; }',
 		'@media (prefers-reduced-motion: reduce) {',
-		'  html[data-dsh-aether][data-aether-input="wenxin"] div:focus-within:not(.aeth-root div) { animation: none !important; }',
+		'  html[data-dsh-aether][data-aether-input="wenxin"] [data-aether-input-host] { animation: none !important; }',
 		'  #dsh-aether-stage > .aether-wall { transition-duration: 0ms; }',
 		'  #dsh-aether-stage .aether-css { animation: none !important; }',
 		'  .aeth-boot .aeth-boot-mark { animation: none; border-color:#7aa2ff; }',
 		'  .aeth-boot { animation-duration: 260ms; }',
 		'}',
 	].join('\n');
+}
+
+/**
+ * 找出聊天输入框的「外层卡片」并打标记（宿主类名是哈希，不能用类名锚定）。
+ * 从 contenteditable 向上最多 4 层，命中第一个有非透明背景 / 类名像 card 的祖先。
+ * 只会新增一个 data 属性，不改结构、不动布局。
+ */
+function tagInputHosts() {
+	try {
+		var inputs = document.querySelectorAll('[contenteditable="true"]:not(.cm-content)');
+		for (var i = 0; i < inputs.length; i += 1) {
+			var element = inputs[i];
+			if (element.closest('.aeth-root')) continue;
+			var parent = element.parentElement;
+			var depth = 0;
+			while (parent && depth < 4) {
+				var style = null;
+				try { style = window.getComputedStyle(parent); } catch (error) { style = null; }
+				var bg = style ? String(style.backgroundColor || '') : '';
+				var opaque = bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent';
+				var cls = String(parent.className || '');
+				var looksCard = /card|input-?box|composer|inputbar/i.test(cls);
+				if (opaque || looksCard) {
+					if (parent.getAttribute('data-aether-input-host') !== '1') {
+						parent.setAttribute('data-aether-input-host', '1');
+					}
+					break;
+				}
+				parent = parent.parentElement;
+				depth += 1;
+			}
+		}
+	} catch (error) { /* ignore */ }
+}
+
+function clearInputHosts() {
+	try {
+		document.querySelectorAll('[data-aether-input-host]').forEach(function (node) {
+			node.removeAttribute('data-aether-input-host');
+		});
+	} catch (error) { /* ignore */ }
 }
 
 function ensureStyle() {
@@ -877,6 +918,7 @@ function safeExit() {
 	try {
 		document.documentElement.removeAttribute('data-dsh-aether');
 		document.documentElement.removeAttribute('data-dsh-aether-pixel');
+		clearInputHosts();
 	} catch (error) { /* ignore */ }
 	notify();
 	if (A.canary.timer) {
