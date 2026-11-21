@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.8';
+		var VERSION = '1.0.9';
 
 		var A = {
 			ctx: null,
@@ -731,6 +731,13 @@ window.__ModuleLoader__.load({
 				if (cfg.wallpaper && cfg.wallpaper.dim === 0.32) { cfg.wallpaper.dim = 0; dirty = true; }
 				// 对话主区透明化：旧默认 0.52 视为「没调过」，归零（去灰色遮罩）
 				if (cfg.glass && cfg.glass.regions && cfg.glass.regions.base === 0.52) { cfg.glass.regions.base = 0; dirty = true; }
+				// 顶栏/侧栏/输入框统一底色：旧默认值一次性对齐到 0.55
+				if (cfg.glass && cfg.glass.regions) {
+					if (cfg.glass.regions.sidebar === 0.44) { cfg.glass.regions.sidebar = 0.55; dirty = true; }
+					if (cfg.glass.regions.layers === 0.5) { cfg.glass.regions.layers = 0.55; dirty = true; }
+					if (cfg.glass.regions.input === 0.58) { cfg.glass.regions.input = 0.55; dirty = true; }
+				}
+				if (cfg.glass && cfg.glass.inputFillOpacity === 0.6) { cfg.glass.inputFillOpacity = 0.55; dirty = true; }
 				if (dirty) saveConfig('migrate-blur');
 			} catch (error) { /* ignore */ }
 			return cfg;
@@ -792,8 +799,8 @@ window.__ModuleLoader__.load({
 				},
 				glass: {
 					glassBlur: 0, backgroundBlur: 0, saturation: 1.15, border: 0.14,
-					regions: { base: 0, sidebar: 0.44, layers: 0.5, menu: 0.74, input: 0.58, bubble: 0.5 },
-					inputFills: ['frosted'], inputFillOpacity: 0.6,
+					regions: { base: 0, sidebar: 0.55, layers: 0.55, menu: 0.74, input: 0.55, bubble: 0.5 },
+					inputFills: ['frosted'], inputFillOpacity: 0.55,
 				},
 				pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
 				widget: { position: 'bottom-right', showBalance: true, showToday: true, showTurn: true, warnBelow: 5 },
@@ -945,6 +952,7 @@ window.__ModuleLoader__.load({
 				'#dsh-aether-stage > .aether-wall { position:absolute; inset:0; opacity:0; transition:opacity var(--aether-transition, 420ms) ease; will-change:opacity; }',
 				'#dsh-aether-stage > .aether-wall.is-on { opacity:1; }',
 				'#dsh-aether-stage > .aether-wall > img, #dsh-aether-stage > .aether-wall > video { width:100%; height:100%; display:block; object-fit:cover; }',
+				'#dsh-aether-stage > .aether-wall > img, #dsh-aether-stage > .aether-wall > video, #dsh-aether-stage > .aether-wall > .aether-css { filter: brightness(var(--aether-wall-brightness, 0.85)); }',
 				'#dsh-aether-stage > .aether-veil { position:absolute; inset:0; background: var(--aether-veil); pointer-events:none; mix-blend-mode: var(--aether-content-blend, normal); }',
 				// 纯 CSS 预设背景
 				'#dsh-aether-stage .aether-css { position:absolute; inset:0; }',
@@ -977,16 +985,31 @@ window.__ModuleLoader__.load({
 				// 模型输出里的 **重点**：亮黄偏白（不动插件自己的面板）
 				'html[data-dsh-aether] strong { color: var(--aether-strong, #ffe6a3) !important; font-weight: 650; }',
 				'html[data-dsh-aether] .aeth-root strong { color: inherit !important; font-weight: 600; }',
-				// 文心式渐变边框输入框（data-aether-input="wenxin" 时启用）
-				'html[data-dsh-aether][data-aether-input="wenxin"] [contenteditable="true"]:not(.cm-content):not(.aeth-root [contenteditable]) {',
-				'  border: 1px solid transparent !important;',
-				'  border-radius: 18px !important;',
-				'  background: linear-gradient(var(--aether-input-inner, #15171c), var(--aether-input-inner, #15171c)) padding-box,',
-				'    linear-gradient(to right, var(--aether-wenxin-a, #3d7dfe) 0%, var(--aether-wenxin-b, #6a59fe) 60%, var(--aether-wenxin-c, #9142ff) 100%) border-box !important;',
-				'  transition: box-shadow .2s ease, background .2s ease;',
+				// 文心式渐变边框（data-aether-input="wenxin"）：
+				// · 边框挂在「外层卡片」（直接包含 contenteditable 的那层 div），不画在内层输入区上
+				// · 只有输入状态（:focus-within）才显示，失焦即隐藏
+				// · 渐变沿边框流动（背景位移动画），节奏参考文心输入框
+				'html[data-dsh-aether][data-aether-input="wenxin"] [contenteditable="true"]:not(.cm-content) {',
+				'  border: none !important;',
+				'  background: transparent !important;',
+				'  border-radius: 0 !important;',
+				'  box-shadow: none !important;',
 				'}',
-				'html[data-dsh-aether][data-aether-input="wenxin"] [contenteditable="true"]:not(.cm-content):focus {',
-				'  box-shadow: 0 0 0 3px color-mix(in srgb, var(--aether-wenxin-b, #6a59fe) 26%, transparent) !important;',
+				'html[data-dsh-aether][data-aether-input="wenxin"] div:has(> [contenteditable="true"]:not(.cm-content)):not(.aeth-root div) {',
+				'  border: 1px solid transparent !important;',
+				'  border-radius: 20px !important;',
+				'  transition: box-shadow .25s ease;',
+				'}',
+				'html[data-dsh-aether][data-aether-input="wenxin"] div:has(> [contenteditable="true"]:not(.cm-content)):focus-within:not(.aeth-root div) {',
+				'  background: linear-gradient(var(--aether-input-inner, #15171c), var(--aether-input-inner, #15171c)) padding-box,',
+				'    linear-gradient(90deg, var(--aether-wenxin-a, #3d7dfe), var(--aether-wenxin-b, #6a59fe), var(--aether-wenxin-c, #9142ff), var(--aether-wenxin-a, #3d7dfe)) border-box !important;',
+				'  background-size: 100% 100%, 200% 100% !important;',
+				'  animation: aether-border-flow 3.6s linear infinite;',
+				'  box-shadow: 0 0 0 3px color-mix(in srgb, var(--aether-wenxin-b, #6a59fe) 24%, transparent) !important;',
+				'}',
+				'@keyframes aether-border-flow {',
+				'  from { background-position: 0% 50%, 0% 50%; }',
+				'  to { background-position: 0% 50%, 200% 50%; }',
 				'}',
 				// 面板/设置页内容放大 + 按钮文字色
 				'html[data-dsh-aether] .aeth-root { padding: 16px 18px 24px; max-width: 980px; margin: 0 auto; color: var(--dsw-alias-label-primary, #e8eaed); }',
@@ -1540,7 +1563,8 @@ window.__ModuleLoader__.load({
 				'--aether-bg-blur': clamp(glass.backgroundBlur === undefined ? 0 : glass.backgroundBlur, 0, 64) + 'px',
 				'--aether-saturation': String(clamp(glass.saturation === undefined ? 1.15 : glass.saturation, 0.2, 2.5)),
 				'--aether-transition': clamp(A.cfg.theme.transitionMs, 0, 2000) + 'ms',
-				'--aether-veil': 'rgba(0,0,0,' + clamp(A.cfg.wallpaper.dim === undefined ? 0.32 : A.cfg.wallpaper.dim, 0, 1) + ')',
+				'--aether-veil': 'rgba(0,0,0,' + clamp(A.cfg.wallpaper.dim === undefined ? 0 : A.cfg.wallpaper.dim, 0, 1) + ')',
+				'--aether-wall-brightness': String(clamp(A.cfg.wallpaper.brightness === undefined ? 0.85 : A.cfg.wallpaper.brightness, 0.3, 1.4)),
 				'--aether-scanline': String(clamp(A.cfg.pixel.scanline === undefined ? 0.08 : A.cfg.pixel.scanline, 0, 0.4)),
 			};
 			Object.keys(vars).forEach(function (name) { setVar(name, vars[name]); });
@@ -2749,6 +2773,16 @@ window.__ModuleLoader__.load({
 							}),
 						)
 						: h('div', { className: 'aeth-note' }, t('state.empty')),
+				),
+				h('div', { className: 'aeth-card' },
+					h('h3', null, '壁纸亮度与压暗'),
+					sliderRow('壁纸亮度（filter，不盖遮罩）', wallpaper.brightness === undefined ? 0.85 : wallpaper.brightness, 0.3, 1.4, 0.05, function (value) {
+						mutate(function (draft) { draft.wallpaper.brightness = value; }, { wallpaper: true });
+					}),
+					sliderRow('压暗遮罩（黑色蒙层，建议留 0）', wallpaper.dim === undefined ? 0 : wallpaper.dim, 0, 1, 0.02, function (value) {
+						mutate(function (draft) { draft.wallpaper.dim = value; }, { wallpaper: true });
+					}),
+					h('div', { className: 'aeth-note' }, '亮度直接调壁纸本身（不影响文字）；压暗是额外的一层黑色遮罩，会把文字一起压暗。'),
 				),
 				h('div', { className: 'aeth-card' },
 					h('h3', null, t('label.rotation')),
