@@ -294,7 +294,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.2';
+		var VERSION = '1.0.3';
 
 		var A = {
 			ctx: null,
@@ -725,7 +725,12 @@ window.__ModuleLoader__.load({
 				theme: {
 					palette: 'auto', accent: '#7aa2ff', secondary: '#9d7cff', deriveFromWallpaper: true,
 					contrastTarget: 7, mixMode: 'multiply', transitionMs: 420, reducedMotion: 'auto',
+					strongColor: '#ffe6a3', fontFamily: '', fontSize: 0,
 				},
+				bubble: { official: true, color: '#dbe7ff', opacity: 0.62 },
+				panel: { scale: 1.15 },
+				meteor: { enabled: false, density: 1, hue: 222 },
+				userMd: { enabled: true },
 				wallpaper: {
 					mode: 'none', source: 'preset', id: '', cssPreset: 'aurora', fit: 'cover',
 					dim: 0.32, blur: 0,
@@ -835,8 +840,7 @@ window.__ModuleLoader__.load({
 				'  --dsw-specific-menu: var(--aether-menu-fill) !important;',
 				'  --dsw-specific-input-major: var(--aether-input-fill) !important;',
 				'  --dsw-specific-selector: var(--aether-input-fill) !important;',
-				'  --dsw-specific-bubble: var(--aether-bubble-fill) !important;',
-				'  --dsw-specific-bubble-highlight: var(--aether-bubble-highlight) !important;',
+
 				'  --dsw-alias-markdown-code-block: var(--aether-code-bg) !important;',
 				'  --dsw-alias-markdown-code-block-banner: var(--aether-code-banner) !important;',
 				'  --dsw-alias-markdown-inline-code: var(--aether-inline-code) !important;',
@@ -853,12 +857,15 @@ window.__ModuleLoader__.load({
 				'  --dsw-alias-button-primary-fill: var(--aether-brand-blue) !important;',
 				'  --dsw-alias-button-primary-hover: var(--aether-brand-blue-hover) !important;',
 				'  --dsw-alias-link: var(--aether-brand-blue) !important;',
-				'  --dsw-alias-label-primary-foreground: var(--aether-brand-blue-ink) !important;',
-				'  --dsw-alias-label-on-color: var(--aether-brand-blue-ink) !important;',
 				'  --dsw-specific-sidebar-nav-item-active-accent: var(--aether-brand-blue) !important;',
 				'  --dsw-focus-ring-color: var(--aether-brand-blue) !important;',
 				'  --dsw-alias-state-business-primary: var(--aether-brand-blue) !important;',
 				'  --dsw-alias-state-business-secondary: var(--aether-brand-blue) !important;',
+				'}',
+				// 用户气泡：默认官方样式；只有 data-aether-bubble="custom" 时才接管
+				'html[data-dsh-aether][data-aether-bubble="custom"] body {',
+				'  --dsw-specific-bubble: var(--aether-bubble-fill) !important;',
+				'  --dsw-specific-bubble-highlight: var(--aether-bubble-highlight) !important;',
 				'}',
 				// 浅色分支兜底：变量缺失时也不出现「白底白字」
 				'html[data-dsh-aether] body:not([data-ds-dark-theme]) {',
@@ -907,7 +914,42 @@ window.__ModuleLoader__.load({
 				'html[data-dsh-aether] input, html[data-dsh-aether] textarea, html[data-dsh-aether] [contenteditable="true"], html[data-dsh-aether] [data-composer-input] { caret-color: var(--aether-caret) !important; }',
 				'#dsh-aether-scan { position:fixed; inset:0; z-index:2147483000; pointer-events:none; background: repeating-linear-gradient(180deg, rgba(0,0,0,var(--aether-scanline, .08)) 0px, rgba(0,0,0,var(--aether-scanline, .08)) 1px, transparent 1px, transparent 3px); mix-blend-mode: multiply; }',
 				// 插件自己的面板/设置页样式（前缀 .aeth-，与宿主隔离）
-				'.aeth-root { padding: 16px 18px 24px; max-width: 980px; margin: 0 auto; color: var(--dsw-alias-label-primary, #e8eaed); }',
+				// 模型输出里的 **重点**：亮黄偏白（不动插件自己的面板）
+				'html[data-dsh-aether] strong { color: var(--aether-strong, #ffe6a3) !important; font-weight: 650; }',
+				'html[data-dsh-aether] .aeth-root strong { color: inherit !important; font-weight: 600; }',
+				// 文心式渐变边框输入框（data-aether-input="wenxin" 时启用）
+				'html[data-dsh-aether][data-aether-input="wenxin"] [contenteditable="true"]:not(.cm-content):not(.aeth-root [contenteditable]) {',
+				'  border: 1px solid transparent !important;',
+				'  border-radius: 18px !important;',
+				'  background: linear-gradient(var(--aether-input-inner, #15171c), var(--aether-input-inner, #15171c)) padding-box,',
+				'    linear-gradient(to right, var(--aether-wenxin-a, #3d7dfe) 0%, var(--aether-wenxin-b, #6a59fe) 60%, var(--aether-wenxin-c, #9142ff) 100%) border-box !important;',
+				'  transition: box-shadow .2s ease, background .2s ease;',
+				'}',
+				'html[data-dsh-aether][data-aether-input="wenxin"] [contenteditable="true"]:not(.cm-content):focus {',
+				'  box-shadow: 0 0 0 3px color-mix(in srgb, var(--aether-wenxin-b, #6a59fe) 26%, transparent) !important;',
+				'}',
+				// 面板/设置页内容放大 + 按钮文字色
+				'html[data-dsh-aether] .aeth-root { padding: 16px 18px 24px; max-width: 980px; margin: 0 auto; color: var(--dsw-alias-label-primary, #e8eaed); }',
+				'html[data-dsh-aether] .aeth-root[data-aeth-surface="panel"] { zoom: var(--aether-panel-scale, 1.15); }',
+				'.aeth-root .aeth-btn { color: var(--dsw-alias-label-primary, #e8eaed) !important; }',
+				'.aeth-root .aeth-btn.primary { color: #0b0f16 !important; font-weight: 600; }',
+				'.aeth-root .aeth-btn.danger { color: var(--dsw-alias-state-error-primary, #e06c75) !important; }',
+				'.aeth-root .aeth-chip { color: var(--dsw-alias-label-secondary, #c3c7ce) !important; }',
+				'.aeth-root .aeth-chip.on { color: #0b0f16 !important; }',
+				'.aeth-root .aeth-tab { color: var(--dsw-alias-label-secondary, #c3c7ce) !important; }',
+				'.aeth-root .aeth-tab.on { color: var(--dsw-alias-label-primary, #e8eaed) !important; }',
+				// 用户消息 markdown 渲染层
+				'.aeth-md { display: block; white-space: normal; word-break: break-word; }',
+				'.aeth-md p { margin: 0 0 .5em; }',
+				'.aeth-md p:last-child { margin-bottom: 0; }',
+				'.aeth-md code { padding: .1em .35em; border-radius: 4px; background: var(--dsw-alias-markdown-inline-code, rgba(255,255,255,.12)); font-family: var(--dsw-font-mono, monospace); font-size: .92em; }',
+				'.aeth-md pre { padding: 10px 12px; border-radius: 8px; background: var(--aether-code-bg, rgba(0,0,0,.42)); overflow: auto; margin: .4em 0; }',
+				'.aeth-md pre code { background: transparent; padding: 0; }',
+				'.aeth-md ul, .aeth-md ol { margin: .3em 0; padding-left: 1.4em; }',
+				'.aeth-md a { color: var(--aether-brand-blue, #7aa2ff); text-decoration: underline; text-underline-offset: 2px; }',
+				'.aeth-md del { opacity: .7; }',
+				// 流星尾缀画布
+				'#dsh-aether-meteor { position: fixed; inset: 0; z-index: 2147482999; pointer-events: none; }',
 				'.aeth-head { display:flex; gap:10px; align-items:baseline; margin-bottom: 12px; flex-wrap: wrap; }',
 				'.aeth-title { font-size: 16px; font-weight: 600; }',
 				'.aeth-sub { color: var(--dsw-alias-label-caption, #8b95a3); font-size: 12px; }',
@@ -1260,6 +1302,9 @@ window.__ModuleLoader__.load({
 					return { bg: 'rgba(0,0,0,0)', border: rgba(ink, 0.38) };
 				case 'accent':
 					return { bg: rgba(parseColor(accent), 0.16), border: rgba(parseColor(accent), 0.46) };
+				case 'wenxin':
+					// 渐变边框由 CSS 的 border-box 层负责，这里只给内层底色
+					return { bg: 'transparent', border: 'transparent' };
 				case 'frosted':
 				default:
 					return { bg: rgba(panel, opacity), border: rgba(ink, 0.16) };
@@ -1428,6 +1473,52 @@ window.__ModuleLoader__.load({
 				'--aether-scanline': String(clamp(A.cfg.pixel.scanline === undefined ? 0.08 : A.cfg.pixel.scanline, 0, 0.4)),
 			};
 			Object.keys(vars).forEach(function (name) { setVar(name, vars[name]); });
+			// ── 文心式输入框 / 字体字号 / 加粗色 / 气泡 / 面板缩放 ─────────────
+			try {
+				var inputInner = toHex(composite({ r: panel.r, g: panel.g, b: panel.b, a: 0.9 }, wallpaperAvg));
+				setVar('--aether-input-inner', inputInner);
+				setVar('--aether-wenxin-a', dark ? '#3d7dfe' : '#2f6bff');
+				setVar('--aether-wenxin-b', dark ? '#6a59fe' : '#5b48f0');
+				setVar('--aether-wenxin-c', dark ? '#9142ff' : '#7b2ee0');
+				if (glass.inputFill === 'wenxin') {
+					document.documentElement.setAttribute('data-aether-input', 'wenxin');
+				} else {
+					document.documentElement.removeAttribute('data-aether-input');
+				}
+			} catch (error) { /* ignore */ }
+
+			try {
+				// 用户气泡：默认官方，只有显式关掉 official 才接管
+				var bubble = A.cfg.bubble || { official: true, color: '#dbe7ff' };
+				if (bubble.official === false) {
+					document.documentElement.setAttribute('data-aether-bubble', 'custom');
+					var bubbleColor = parseColor(bubble.color || '#dbe7ff');
+					setVar('--aether-bubble-fill', rgba(bubbleColor, clamp(bubble.opacity === undefined ? 0.62 : bubble.opacity, 0.1, 1)));
+					setVar('--aether-bubble-highlight', rgba(shiftColor(bubbleColor, 0.15), 0.8));
+				} else {
+					document.documentElement.removeAttribute('data-aether-bubble');
+				}
+			} catch (error) { /* ignore */ }
+
+			try {
+				// 加粗（**重点**）：亮黄偏白
+				var strong = (A.cfg.theme && A.cfg.theme.strongColor) || '#ffe6a3';
+				setVar('--aether-strong', strong);
+				// 面板缩放
+				var scale = A.cfg.panel && A.cfg.panel.scale ? clamp(A.cfg.panel.scale, 0.8, 1.6) : 1.15;
+				setVar('--aether-panel-scale', String(scale));
+				// 字体与字号：走官方 theme-presenter 的 CSS 变量（写在 body 上）
+				var themeCfg = A.cfg.theme || {};
+				if (themeCfg.fontSize) {
+					document.body.style.setProperty('--dsh-content-font-size', clamp(themeCfg.fontSize, 11, 24) + 'px');
+				}
+				if (themeCfg.fontFamily) {
+					document.body.style.setProperty('--dsh-font-family-text', '"' + String(themeCfg.fontFamily).replace(/"/g, '') + '", system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif');
+				} else {
+					document.body.style.removeProperty('--dsh-font-family-text');
+				}
+			} catch (error) { /* ignore */ }
+
 			setVar('--aether-input-border', input.border);
 			setVar('--aether-input-focus', rgba(parseColor(accentHex), 0.6));
 
@@ -2001,6 +2092,128 @@ window.__ModuleLoader__.load({
 			);
 		}
 
+		// ── 55-meteor.js ────────────────────────────────────────────────────
+		// ── meteor：鼠标流星尾缀（canvas 粒子，零图片） ────────────────────────
+		// 尊重 prefers-reduced-motion：减弱动效时整个模块不启动（连 canvas 都不建）。
+		// 配置：A.cfg.meteor = { enabled, density, hue }
+
+		function MeteorCursor() {
+			useAetherTick();
+			var canvasState = react.useState(null);
+			var canvas = canvasState[0];
+			var setCanvas = canvasState[1];
+			var enabled = Boolean(A.cfg && A.cfg.meteor && A.cfg.meteor.enabled) && moduleOn('theme') && !A.canary.disabled;
+
+			react.useEffect(function () {
+				if (!enabled) {
+					if (canvas && canvas.parentNode) {
+						try { canvas.parentNode.removeChild(canvas); } catch (error) { /* ignore */ }
+					}
+					return undefined;
+				}
+				if (shouldReduceMotion()) return undefined;
+				var element = document.createElement('canvas');
+				element.id = 'dsh-aether-meteor';
+				element.setAttribute('aria-hidden', 'true');
+				document.body.appendChild(element);
+				setCanvas(element);
+				return function () {
+					try { element.remove(); } catch (error) { /* ignore */ }
+					setCanvas(null);
+				};
+			}, [enabled]);
+
+			react.useEffect(function () {
+				if (!canvas || !enabled) return undefined;
+				var context = canvas.getContext('2d');
+				if (!context) return undefined;
+				var dpr = Math.min(2, window.devicePixelRatio || 1);
+				var particles = [];
+				var frame = null;
+				var last = { x: -1, y: -1, t: 0 };
+				var density = clamp((A.cfg.meteor && A.cfg.meteor.density) || 1, 0.2, 3);
+				var hueBase = clamp((A.cfg.meteor && A.cfg.meteor.hue) || 222, 0, 360);
+
+				function resize() {
+					canvas.width = Math.round(window.innerWidth * dpr);
+					canvas.height = Math.round(window.innerHeight * dpr);
+					canvas.style.width = '100%';
+					canvas.style.height = '100%';
+					context.setTransform(dpr, 0, 0, dpr, 0, 0);
+				}
+				resize();
+				window.addEventListener('resize', resize);
+
+				function spawn(x, y, dx, dy) {
+					var speed = Math.min(48, Math.sqrt(dx * dx + dy * dy));
+					var count = Math.max(1, Math.round((0.6 + speed / 10) * density));
+					for (var i = 0; i < count; i += 1) {
+						particles.push({
+							x: x + (Math.random() - 0.5) * 6,
+							y: y + (Math.random() - 0.5) * 6,
+							vx: -dx * 0.045 + (Math.random() - 0.5) * 1.4,
+							vy: -dy * 0.045 + (Math.random() - 0.5) * 1.4 - 0.35,
+							life: 1,
+							decay: 0.012 + Math.random() * 0.02,
+							size: 0.9 + Math.random() * 2.2,
+							hue: hueBase + (Math.random() * 70 - 20),
+						});
+					}
+					if (particles.length > 260) particles.splice(0, particles.length - 260);
+				}
+
+				function onMove(event) {
+					var now = performance.now();
+					var x = event.clientX;
+					var y = event.clientY;
+					var dt = now - last.t;
+					if (last.x >= 0 && dt < 40) {
+						spawn(x, y, x - last.x, y - last.y);
+					}
+					last = { x: x, y: y, t: now };
+				}
+
+				function tick() {
+					context.clearRect(0, 0, window.innerWidth, window.innerHeight);
+					context.globalCompositeOperation = 'lighter';
+					for (var i = particles.length - 1; i >= 0; i -= 1) {
+						var p = particles[i];
+						p.x += p.vx;
+						p.y += p.vy;
+						p.vx *= 0.97;
+						p.vy = p.vy * 0.97 + 0.012;
+						p.life -= p.decay;
+						if (p.life <= 0) {
+							particles.splice(i, 1);
+							continue;
+						}
+						var alpha = Math.max(0, p.life) * 0.85;
+						var gradient = context.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 4);
+						gradient.addColorStop(0, 'hsla(' + p.hue + ', 100%, 78%, ' + alpha + ')');
+						gradient.addColorStop(0.45, 'hsla(' + (p.hue + 18) + ', 100%, 66%, ' + (alpha * 0.55) + ')');
+						gradient.addColorStop(1, 'hsla(' + (p.hue + 30) + ', 100%, 60%, 0)');
+						context.fillStyle = gradient;
+						context.beginPath();
+						context.arc(p.x, p.y, p.size * 4, 0, Math.PI * 2);
+						context.fill();
+					}
+					context.globalCompositeOperation = 'source-over';
+					frame = requestAnimationFrame(tick);
+				}
+
+				window.addEventListener('mousemove', onMove, { passive: true });
+				frame = requestAnimationFrame(tick);
+				return function () {
+					window.removeEventListener('mousemove', onMove);
+					window.removeEventListener('resize', resize);
+					if (frame !== null) cancelAnimationFrame(frame);
+					particles = [];
+				};
+			}, [canvas, enabled]);
+
+			return null;
+		}
+
 		// ── 60-panel.js ─────────────────────────────────────────────────────
 		// ── panel：左侧边栏面板 —— 全功能控制台 ─────────────────────────────────
 		// 分区：外观 / 壁纸 / 玻璃 / 像素 / 模块 / 主题包 / 诊断。
@@ -2193,13 +2406,13 @@ window.__ModuleLoader__.load({
 			}
 
 			if (!cfg) {
-				return h('div', { className: 'aeth-root' },
+				return h('div', { className: 'aeth-root', 'data-aeth-surface': 'panel' },
 					h('div', { className: 'aeth-head' }, h('div', { className: 'aeth-title' }, t('panel.title'))),
 					h('div', { className: 'aeth-card' }, hostOk ? t('state.loading') : t('state.hostDown')),
 				);
 			}
 
-			return h('div', { className: 'aeth-root' },
+			return h('div', { className: 'aeth-root', 'data-aeth-surface': 'panel' },
 				h('div', { className: 'aeth-head' },
 					h('div', { className: 'aeth-title' }, t('panel.title')),
 					h('div', { className: 'aeth-sub' }, t('panel.subtitle') + ' · v' + VERSION + (A.canary.disabled ? ' · ' + t('safe.mode') : '')),
@@ -2290,6 +2503,91 @@ window.__ModuleLoader__.load({
 					], theme.reducedMotion, function (value) {
 						mutate(function (draft) { draft.theme.reducedMotion = value; }, { wallpaper: false });
 					}),
+				),
+				AdvancedCards(cfg, mutate),
+			);
+		}
+
+		var FONT_CHOICES = [
+			{ value: '', label: '官方默认' },
+			{ value: 'Microsoft YaHei', label: '微软雅黑' },
+			{ value: 'PingFang SC', label: '苹方' },
+			{ value: 'Noto Sans SC', label: '思源黑体' },
+			{ value: 'Source Han Sans SC', label: 'Source Han Sans' },
+			{ value: 'Segoe UI', label: 'Segoe UI' },
+			{ value: 'SimSun', label: '宋体' },
+			{ value: 'KaiTi', label: '楷体' },
+		];
+
+		function AdvancedCards(cfg, mutate) {
+			var theme = cfg.theme;
+			var bubble = cfg.bubble || { official: true, color: '#dbe7ff', opacity: 0.62 };
+			var panel = cfg.panel || { scale: 1.15 };
+			var meteor = cfg.meteor || { enabled: false, density: 1, hue: 222 };
+			var userMd = cfg.userMd || { enabled: true };
+			return h('div', null,
+				h('div', { className: 'aeth-card' },
+					h('h3', null, '字体与字号'),
+					selectRow('字体', FONT_CHOICES, theme.fontFamily || '', function (value) {
+						mutate(function (draft) { draft.theme.fontFamily = value; }, { wallpaper: false });
+					}),
+					sliderRow('字号', theme.fontSize || 0, 0, 24, 1, function (value) {
+						mutate(function (draft) { draft.theme.fontSize = value === 0 ? 0 : value; }, { wallpaper: false });
+					}, theme.fontSize ? 'px' : '（官方）'),
+					row('加粗颜色', h('input', {
+						type: 'color',
+						value: theme.strongColor || '#ffe6a3',
+						onChange: function (event) { mutate(function (draft) { draft.theme.strongColor = event.target.value; }, { wallpaper: false }); },
+						style: { width: '40px', height: '28px', border: 'none', background: 'transparent' },
+					})),
+					h('div', { className: 'aeth-chips', style: { marginLeft: '160px' } },
+						['#ffe6a3', '#ffd76e', '#fff2b8', '#ffcf5c'].map(function (color) {
+							return h('button', {
+								key: color,
+								className: 'aeth-chip' + ((theme.strongColor || '').toLowerCase() === color ? ' on' : ''),
+								onClick: function () { mutate(function (draft) { draft.theme.strongColor = color; }, { wallpaper: false }); },
+								style: { background: color, color: '#0b0f16', borderColor: 'transparent' },
+							}, color);
+						}),
+					),
+					h('div', { className: 'aeth-note' }, '作用于模型输出的 **加粗重点**（host 的 strong/b）。'),
+				),
+				h('div', { className: 'aeth-card' },
+					h('h3', null, '用户气泡'),
+					toggleRow('使用官方气泡样式', bubble.official !== false, function (value) {
+						mutate(function (draft) { draft.bubble = Object.assign({}, draft.bubble || {}, { official: value }); }, { wallpaper: false });
+					}),
+					bubble.official === false
+						? h('div', null,
+							row('气泡颜色', h('input', {
+								type: 'color',
+								value: bubble.color || '#dbe7ff',
+								onChange: function (event) { mutate(function (draft) { draft.bubble = Object.assign({}, draft.bubble || {}, { color: event.target.value }); }, { wallpaper: false }); },
+								style: { width: '40px', height: '28px', border: 'none', background: 'transparent' },
+							})),
+							sliderRow('不透明度', bubble.opacity === undefined ? 0.62 : bubble.opacity, 0.1, 1, 0.02, function (value) {
+								mutate(function (draft) { draft.bubble = Object.assign({}, draft.bubble || {}, { opacity: value }); }, { wallpaper: false });
+							}),
+						)
+						: h('div', { className: 'aeth-note' }, '当前跟随宿主原生气泡色。'),
+				),
+				h('div', { className: 'aeth-card' },
+					h('h3', null, '交互效果'),
+					toggleRow('用户消息 Markdown 自动渲染', userMd.enabled !== false, function (value) {
+						mutate(function (draft) { draft.userMd = Object.assign({}, draft.userMd || {}, { enabled: value }); }, { wallpaper: false });
+						setTimeout(function () { try { scanUserMarkdown(); } catch (error) { /* ignore */ } }, 80);
+					}),
+					toggleRow('鼠标流星尾缀', Boolean(meteor.enabled), function (value) {
+						mutate(function (draft) { draft.meteor = Object.assign({}, draft.meteor || {}, { enabled: value }); }, { wallpaper: false });
+					}),
+					meteor.enabled
+						? sliderRow('流星密度', meteor.density || 1, 0.2, 3, 0.1, function (value) {
+							mutate(function (draft) { draft.meteor = Object.assign({}, draft.meteor || {}, { density: value }); }, { wallpaper: false });
+						})
+						: null,
+					sliderRow('面板内容缩放', panel.scale || 1.15, 0.8, 1.6, 0.05, function (value) {
+						mutate(function (draft) { draft.panel = Object.assign({}, draft.panel || {}, { scale: value }); }, { wallpaper: false });
+					}, '×'),
 				),
 			);
 		}
@@ -2464,6 +2762,7 @@ window.__ModuleLoader__.load({
 						{ value: 'tinted', label: t('input.tinted') },
 						{ value: 'bordered', label: t('input.bordered') },
 						{ value: 'accent', label: t('input.accent') },
+						{ value: 'wenxin', label: '文心渐变边框' },
 					], glass.inputFill, function (value) {
 						mutate(function (draft) { draft.glass.inputFill = value; }, { wallpaper: false });
 					}),
@@ -2620,13 +2919,13 @@ window.__ModuleLoader__.load({
 			}
 
 			if (!cfg) {
-				return h('div', { className: 'aeth-root' },
+				return h('div', { className: 'aeth-root', 'data-aeth-surface': 'settings' },
 					h('div', { className: 'aeth-head' }, h('div', { className: 'aeth-title' }, t('nav.settings'))),
 					h('div', { className: 'aeth-card' }, A.host.ok ? t('state.loading') : t('state.hostDown')),
 				);
 			}
 
-			return h('div', { className: 'aeth-root' },
+			return h('div', { className: 'aeth-root', 'data-aeth-surface': 'settings' },
 				h('div', { className: 'aeth-head' },
 					h('div', { className: 'aeth-title' }, t('nav.settings')),
 					h('div', { className: 'aeth-sub' }, 'v' + VERSION + (status ? ' · ' + status : '')),
@@ -2654,6 +2953,29 @@ window.__ModuleLoader__.load({
 					sliderRow(t('label.glassBlur'), cfg.glass.glassBlur, 0, 64, 1, function (value) {
 						mutate(function (draft) { draft.glass.glassBlur = value; });
 					}, 'px'),
+				),
+				h('div', { className: 'aeth-card' },
+					h('h3', null, '字体与内容'),
+					selectRow('字体', FONT_CHOICES, cfg.theme.fontFamily || '', function (value) { mutate(function (draft) { draft.theme.fontFamily = value; }); }),
+					sliderRow('字号', cfg.theme.fontSize || 0, 0, 24, 1, function (value) { mutate(function (draft) { draft.theme.fontSize = value; }); }, cfg.theme.fontSize ? 'px' : '（官方）'),
+					row('加粗颜色', h('input', {
+						type: 'color',
+						value: cfg.theme.strongColor || '#ffe6a3',
+						onChange: function (event) { mutate(function (draft) { draft.theme.strongColor = event.target.value; }); },
+						style: { width: '40px', height: '28px', border: 'none', background: 'transparent' },
+					})),
+					sliderRow('面板内容缩放', (cfg.panel || {}).scale || 1.15, 0.8, 1.6, 0.05, function (value) {
+						mutate(function (draft) { draft.panel = Object.assign({}, draft.panel || {}, { scale: value }); });
+					}, '×'),
+					toggleRow('用户消息 Markdown 渲染', (cfg.userMd || {}).enabled !== false, function (value) {
+						mutate(function (draft) { draft.userMd = Object.assign({}, draft.userMd || {}, { enabled: value }); });
+					}),
+					toggleRow('鼠标流星尾缀', Boolean((cfg.meteor || {}).enabled), function (value) {
+						mutate(function (draft) { draft.meteor = Object.assign({}, draft.meteor || {}, { enabled: value }); });
+					}),
+					toggleRow('使用官方气泡样式', (cfg.bubble || {}).official !== false, function (value) {
+						mutate(function (draft) { draft.bubble = Object.assign({}, draft.bubble || {}, { official: value }); });
+					}),
 				),
 				h('div', { className: 'aeth-card' },
 					h('h3', null, '模块'),
@@ -2763,6 +3085,169 @@ window.__ModuleLoader__.load({
 				h('path', { d: 'M6.4 13.4c1.8-1.6 3.2 1.6 5 0s3.2 1.6 5 0 2.4 1.2 3.4.4' }),
 				h('circle', { cx: 15.6, cy: 8.6, r: 1.3, fill: 'currentColor', stroke: 'none' }),
 			);
+		}
+
+		// ── 80-usermd.js ────────────────────────────────────────────────────
+		// ── usermd：用户消息 markdown 自动渲染 ──────────────────────────────────
+		// 宿主的用户气泡用 UserTextRun 渲染纯文本（引用 chip 除外），不解析 markdown。
+		// 这里做 DOM 后处理：找到 [data-message-bubble]，把含标记的原文渲染成 .aeth-md
+		// 并隐藏原文（原文保留，方便回退；原文节点不清空）。
+		//
+		// 安全：先 HTML 转义再套规则；链接只允许 http(s)/mailto/相对路径；
+		// 代码块内容单独转义；不执行任何脚本。
+
+		var USER_MD_PATTERN = /(\*\*|__|~~|`|^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|\[[^\]]+\]\([^)]+\))/m;
+
+		function escapeHtmlText(text) {
+			return String(text)
+				.replace(/&/g, '&amp;')
+				.replace(/</g, '&lt;')
+				.replace(/>/g, '&gt;')
+				.replace(/"/g, '&quot;')
+				.replace(/'/g, '&#39;');
+		}
+
+		function safeHref(url) {
+			var value = String(url || '').trim();
+			if (/^(https?:|mailto:|\/|#)/i.test(value)) return value.replace(/"/g, '%22');
+			return '#';
+		}
+
+		/** 极简 markdown → HTML（够用即可：粗体/斜体/删除线/行内码/代码块/标题/列表/链接/段落）。 */
+		function renderUserMarkdown(text) {
+			var source = String(text || '').replace(/\r\n/g, '\n');
+			if (!source.trim()) return '';
+			var slots = [];
+			function stash(html) {
+				var token = '\u0000SLOT' + slots.length + '\u0000';
+				slots.push(html);
+				return token;
+			}
+			// 1) 围栏代码块先摘出来（内部不再解析）
+			source = source.replace(/```([A-Za-z0-9_+-]*)\n([\s\S]*?)```/g, function (match, lang, body) {
+				return stash('<pre><code data-lang="' + escapeHtmlText(lang) + '">' + escapeHtmlText(body.replace(/\n$/, '')) + '</code></pre>');
+			});
+			// 2) 转义
+			var escaped = escapeHtmlText(source);
+			// 3) 行内代码
+			escaped = escaped.replace(/`([^`\n]+)`/g, function (match, code) {
+				return '<code>' + escapeHtmlText(code.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")) + '</code>';
+			});
+			// 4) 链接
+			escaped = escaped.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (match, label, href) {
+				return '<a href="' + safeHref(href.replace(/&amp;/g, '&')) + '" target="_blank" rel="noreferrer noopener">' + label + '</a>';
+			});
+			// 5) 粗体 / 斜体 / 删除线
+			escaped = escaped
+				.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+				.replace(/__([^_\n]+)__/g, '<strong>$1</strong>')
+				.replace(/~~([^~\n]+)~~/g, '<del>$1</del>')
+				.replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+				.replace(/(^|[\s(])_([^_\n]+)_/g, '$1<em>$2</em>');
+			// 6) 分块：标题 / 列表 / 段落
+			var lines = escaped.split('\n');
+			var html = [];
+			var listType = '';
+			function closeList() {
+				if (listType) { html.push('</' + listType + '>'); listType = ''; }
+			}
+			for (var i = 0; i < lines.length; i += 1) {
+				var line = lines[i];
+				var heading = /^(#{1,6})\s+(.*)$/.exec(line);
+				var bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
+				var ordered = /^\s*\d+\.\s+(.*)$/.exec(line);
+				if (heading) {
+					closeList();
+					var level = Math.min(6, heading[1].length + 2);
+					html.push('<h' + level + '>' + heading[2] + '</h' + level + '>');
+				} else if (bullet) {
+					if (listType !== 'ul') { closeList(); html.push('<ul>'); listType = 'ul'; }
+					html.push('<li>' + bullet[1] + '</li>');
+				} else if (ordered) {
+					if (listType !== 'ol') { closeList(); html.push('<ol>'); listType = 'ol'; }
+					html.push('<li>' + ordered[1] + '</li>');
+				} else if (line.trim() === '') {
+					closeList();
+				} else {
+					closeList();
+					html.push('<p>' + line + '</p>');
+				}
+			}
+			closeList();
+			var output = html.join('');
+			// 7) 把摘出来的代码块放回
+			output = output.replace(/\u0000SLOT(\d+)\u0000/g, function (match, index) {
+				return slots[Number(index)] || '';
+			});
+			return output;
+		}
+
+		var userMdObserver = null;
+		var userMdTimer = null;
+
+		function processUserBubble(bubble) {
+			try {
+				if (!bubble || bubble.dataset.aetherMd === '1') return;
+				if (bubble.querySelector('.aeth-md')) { bubble.dataset.aetherMd = '1'; return; }
+				var holder = bubble.querySelector('[data-aether-md-source]') || bubble.firstElementChild;
+				if (!holder) return;
+				var text = holder.textContent || '';
+				if (!text.trim() || text.length > 24000) return;
+				if (!USER_MD_PATTERN.test(text)) return;
+				var html = renderUserMarkdown(text);
+				if (!html || html === escapeHtmlText(text)) return;
+				var md = document.createElement('div');
+				md.className = 'aeth-md';
+				md.innerHTML = html;
+				holder.style.display = 'none';
+				bubble.appendChild(md);
+				bubble.dataset.aetherMd = '1';
+			} catch (error) {
+				pushLog('warn', '用户消息 markdown 渲染失败', { message: String(error && error.message) });
+			}
+		}
+
+		function scanUserMarkdown() {
+			if (!A.cfg || !A.cfg.userMd || A.cfg.userMd.enabled !== true) {
+				// 关掉时把已渲染的还原
+				document.querySelectorAll('[data-message-bubble]').forEach(function (bubble) {
+					if (bubble.dataset.aetherMd !== '1') return;
+					var md = bubble.querySelector('.aeth-md');
+					if (md) { try { md.remove(); } catch (error) { /* ignore */ } }
+					var holder = bubble.firstElementChild;
+					if (holder) holder.style.display = '';
+					delete bubble.dataset.aetherMd;
+				});
+				return;
+			}
+			if (A.canary.disabled) return;
+			var bubbles = document.querySelectorAll('[data-message-bubble]');
+			for (var i = 0; i < bubbles.length; i += 1) processUserBubble(bubbles[i]);
+		}
+
+		function startUserMarkdown() {
+			if (userMdObserver) return;
+			try {
+				userMdObserver = new MutationObserver(function () {
+					if (userMdTimer) return;
+					userMdTimer = setTimeout(function () {
+						userMdTimer = null;
+						scanUserMarkdown();
+					}, 220);
+				});
+				userMdObserver.observe(document.body, { childList: true, subtree: true });
+			} catch (error) {
+				pushLog('warn', '用户 markdown observer 启动失败', { message: String(error && error.message) });
+			}
+			scanUserMarkdown();
+		}
+
+		function stopUserMarkdown() {
+			if (userMdObserver) {
+				try { userMdObserver.disconnect(); } catch (error) { /* ignore */ }
+				userMdObserver = null;
+			}
+			if (userMdTimer) { clearTimeout(userMdTimer); userMdTimer = null; }
 		}
 
 		// ── 90-apply.js ─────────────────────────────────────────────────────
@@ -2931,6 +3416,9 @@ window.__ModuleLoader__.load({
 				notify();
 			});
 
+			// 2.5) 用户消息 markdown 自动渲染
+			try { startUserMarkdown(); } catch (error) { /* ignore */ }
+
 			// 3) 金丝雀 + 主题跟随 + 服务
 			if (A.cfg && A.cfg.diag && A.cfg.diag.enabled === false) {
 				// 诊断模块关掉也不影响金丝雀（安全兜底必须常驻）
@@ -2952,6 +3440,7 @@ window.__ModuleLoader__.load({
 							try { if (A.rotationTimer) clearInterval(A.rotationTimer); } catch (error) { /* ignore */ }
 							try { if (A.diagTimer) clearInterval(A.diagTimer); } catch (error) { /* ignore */ }
 							try { if (A.observer) A.observer.disconnect(); } catch (error) { /* ignore */ }
+							try { stopUserMarkdown(); } catch (error) { /* ignore */ }
 							try { if (A.themeOff) A.themeOff(); } catch (error) { /* ignore */ }
 							try { if (A.mediaOff) A.mediaOff(); } catch (error) { /* ignore */ }
 							try { if (A.motionOff) A.motionOff(); } catch (error) { /* ignore */ }
