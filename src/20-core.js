@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.5';
+var VERSION = '1.0.6';
 
 var A = {
 	ctx: null,
@@ -420,6 +420,7 @@ function loadState() {
 		A.host.diag = payload.diag || null;
 		A.defaults = payload.defaultAppearance || null;
 		A.cfg = mergeConfig(payload.appearance, payload.defaultAppearance);
+		migrateBlurOff(A.cfg);
 		return payload;
 	}).catch(function (error) {
 		A.host.ok = false;
@@ -427,6 +428,17 @@ function loadState() {
 		if (!A.cfg && A.defaults) A.cfg = mergeConfig(null, A.defaults);
 		throw error;
 	});
+}
+
+/** 一次性迁移：把旧默认的磨砂值（bg 8 / glass 18）归零——host 端可能缓存着旧配置。 */
+function migrateBlurOff(cfg) {
+	try {
+		if (!cfg || !cfg.glass) return cfg;
+		if (cfg.glass.backgroundBlur === 8) cfg.glass.backgroundBlur = 0;
+		if (cfg.glass.glassBlur === 18) cfg.glass.glassBlur = 0;
+		if (cfg.glass.glassBlur === 18 || cfg.glass.backgroundBlur === 8) saveConfig('migrate-blur');
+	} catch (error) { /* ignore */ }
+	return cfg;
 }
 
 function mergeConfig(saved, defaults) {
@@ -484,7 +496,7 @@ function defaultConfigFallback() {
 			rotation: { enabled: false, intervalMin: 30, timeOfDay: [6, 18], categories: [] },
 		},
 		glass: {
-			glassBlur: 18, backgroundBlur: 0, saturation: 1.15, border: 0.14,
+			glassBlur: 0, backgroundBlur: 0, saturation: 1.15, border: 0.14,
 			regions: { base: 0.52, sidebar: 0.44, layers: 0.5, menu: 0.74, input: 0.58, bubble: 0.5 },
 			inputFills: ['frosted'], inputFillOpacity: 0.6,
 		},
@@ -570,8 +582,7 @@ function buildStyleText() {
 		'html[data-dsh-aether] { background: #0b0d12; }',
 		'html[data-dsh-aether] body { background: transparent !important; }',
 		'html[data-dsh-aether] #root { background: transparent !important; }',
-		'html[data-dsh-aether] #root { backdrop-filter: blur(var(--aether-bg-blur, 0px)) saturate(var(--aether-saturation, 1.15)); }',
-		'html[data-dsh-aether] #root > div { isolation: isolate; }',
+				'html[data-dsh-aether] #root > div { isolation: isolate; }',
 		// 变量桥：把 js 计算的 --aether-* 映射到宿主 --dsw-* 语义变量
 		'html[data-dsh-aether] body {',
 		'  --dsw-alias-bg-base: var(--aether-bg-base) !important;',
@@ -623,10 +634,17 @@ function buildStyleText() {
 		'}',
 		// 面板玻璃：只对有明确语义的容器做 backdrop-filter（不改结构/位置）
 		'html[data-dsh-aether] [role="dialog"],',
-		'html[data-dsh-aether] [role="menu"],',
+		'html[data-dsh-aether] [role="menu"] {',
+		'  backdrop-filter: blur(var(--aether-glass-blur, 0px)) saturate(var(--aether-saturation, 1.15));',
+		'}',
+		// 彻底去磨砂：全局面板、右栏与宿主侧栏的 backdrop-filter 一律清掉。
+		// 面板靠半透明底色表现玻璃感，但不再模糊背后的壁纸。
 		'html[data-dsh-aether] [data-global-panel],',
-		'html[data-dsh-aether] [data-rightbar-col] {',
-		'  backdrop-filter: blur(var(--aether-glass-blur, 18px)) saturate(var(--aether-saturation, 1.15));',
+		'html[data-dsh-aether] [data-rightbar-col],',
+		'html[data-dsh-aether] [class*="sidebarCol"],',
+		'html[data-dsh-aether] [class*="sidebar"],',
+		'html[data-dsh-aether] [class*="Sidebar"] {',
+		'  backdrop-filter: none !important;',
 		'}',
 		// 壁纸层：双缓冲淡入淡出（防闪烁）
 		'#dsh-aether-stage > .aether-wall { position:absolute; inset:0; opacity:0; transition:opacity var(--aether-transition, 420ms) ease; will-change:opacity; }',
