@@ -118,6 +118,8 @@ function processUserBubble(bubble) {
 }
 
 function scanUserMarkdown() {
+	// 聊天区是异步渲染的：每次 DOM 变化顺手补一次输入框卡片标记
+	try { tagInputHosts(); } catch (error) { /* ignore */ }
 	if (!A.cfg || !A.cfg.userMd || A.cfg.userMd.enabled !== true) {
 		// 关掉时把已渲染的还原
 		document.querySelectorAll('[data-message-bubble]').forEach(function (bubble) {
