@@ -122,6 +122,13 @@ function accentFromWallpaper() {
 	return null;
 }
 
+/** 输入框的「有效底色」：半透明输入框叠在壁纸上，用于光标/文字可读性反解。 */
+function inputEffectiveColor(panel, wallpaperColor, alpha) {
+	var fill = A.cfg && A.cfg.glass ? A.cfg.glass.inputFill : 'frosted';
+	var localAlpha = fill === 'transparent' || fill === 'bordered' ? 0.06 : Math.max(clamp(alpha, 0, 1), 0.5);
+	return composite({ r: panel.r, g: panel.g, b: panel.b, a: localAlpha }, wallpaperColor);
+}
+
 /** 输入框 6 种填充模式 → 实际底色/边框。 */
 function inputFillColor(mode, panel, accent, ink) {
 	var opacity = A.cfg && A.cfg.glass ? clamp(A.cfg.glass.inputFillOpacity, 0, 1) : 0.6;
@@ -249,8 +256,17 @@ function applyAppearance(reason) {
 
 	var input = inputFillColor(glass.inputFill || 'frosted', panel, accentHex, ink);
 
+	// 可读强调色：按钮底 / 链接 / 状态点 / 侧栏选中图标 / 光标 都用校准后的版本
+	var sidebarSurface = composite({ r: panel.r, g: panel.g, b: panel.b, a: alphaSidebar }, wallpaperAvg);
+	var accentReadable = readableOn(accentHex, sidebarSurface, 4.5);
+	var accentInk = inkOn(accentHex, 4.5);
+	var caretColor = readableOn(accentHex, inputEffectiveColor(panel, wallpaperAvg, alphaInput), 4.5);
+
 	var vars = {
 		'--aether-accent': palette.accent,
+		'--aether-accent-readable': accentReadable,
+		'--aether-accent-ink': accentInk,
+		'--aether-caret': caretColor,
 		'--aether-accent-soft': palette.accentSoft,
 		'--aether-accent-strong': palette.accentStrong,
 		'--aether-secondary': secondary,
@@ -300,6 +316,9 @@ function applyAppearance(reason) {
 			setVar('--aether-accent', pixelPalette.accent);
 			setVar('--aether-accent-soft', pixelPalette.inkSoft);
 			setVar('--aether-accent-strong', pixelPalette.accent);
+			setVar('--aether-accent-readable', pixelPalette.accent);
+			setVar('--aether-accent-ink', inkOn(pixelPalette.accent, 4.5));
+			setVar('--aether-caret', pixelPalette.ink);
 			setVar('--aether-label-primary', pixelPalette.ink);
 			setVar('--aether-label-secondary', pixelPalette.inkSoft);
 			setVar('--aether-label-tertiary', pixelPalette.inkSoft);
