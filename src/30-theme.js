@@ -143,6 +143,9 @@ function inputFillColor(mode, panel, accent, ink) {
 			return { bg: 'rgba(0,0,0,0)', border: rgba(ink, 0.38) };
 		case 'accent':
 			return { bg: rgba(parseColor(accent), 0.16), border: rgba(parseColor(accent), 0.46) };
+		case 'wenxin':
+			// 渐变边框由 CSS 的 border-box 层负责，这里只给内层底色
+			return { bg: 'transparent', border: 'transparent' };
 		case 'frosted':
 		default:
 			return { bg: rgba(panel, opacity), border: rgba(ink, 0.16) };
@@ -311,6 +314,52 @@ function applyAppearance(reason) {
 		'--aether-scanline': String(clamp(A.cfg.pixel.scanline === undefined ? 0.08 : A.cfg.pixel.scanline, 0, 0.4)),
 	};
 	Object.keys(vars).forEach(function (name) { setVar(name, vars[name]); });
+	// ── 文心式输入框 / 字体字号 / 加粗色 / 气泡 / 面板缩放 ─────────────
+	try {
+		var inputInner = toHex(composite({ r: panel.r, g: panel.g, b: panel.b, a: 0.9 }, wallpaperAvg));
+		setVar('--aether-input-inner', inputInner);
+		setVar('--aether-wenxin-a', dark ? '#3d7dfe' : '#2f6bff');
+		setVar('--aether-wenxin-b', dark ? '#6a59fe' : '#5b48f0');
+		setVar('--aether-wenxin-c', dark ? '#9142ff' : '#7b2ee0');
+		if (glass.inputFill === 'wenxin') {
+			document.documentElement.setAttribute('data-aether-input', 'wenxin');
+		} else {
+			document.documentElement.removeAttribute('data-aether-input');
+		}
+	} catch (error) { /* ignore */ }
+
+	try {
+		// 用户气泡：默认官方，只有显式关掉 official 才接管
+		var bubble = A.cfg.bubble || { official: true, color: '#dbe7ff' };
+		if (bubble.official === false) {
+			document.documentElement.setAttribute('data-aether-bubble', 'custom');
+			var bubbleColor = parseColor(bubble.color || '#dbe7ff');
+			setVar('--aether-bubble-fill', rgba(bubbleColor, clamp(bubble.opacity === undefined ? 0.62 : bubble.opacity, 0.1, 1)));
+			setVar('--aether-bubble-highlight', rgba(shiftColor(bubbleColor, 0.15), 0.8));
+		} else {
+			document.documentElement.removeAttribute('data-aether-bubble');
+		}
+	} catch (error) { /* ignore */ }
+
+	try {
+		// 加粗（**重点**）：亮黄偏白
+		var strong = (A.cfg.theme && A.cfg.theme.strongColor) || '#ffe6a3';
+		setVar('--aether-strong', strong);
+		// 面板缩放
+		var scale = A.cfg.panel && A.cfg.panel.scale ? clamp(A.cfg.panel.scale, 0.8, 1.6) : 1.15;
+		setVar('--aether-panel-scale', String(scale));
+		// 字体与字号：走官方 theme-presenter 的 CSS 变量（写在 body 上）
+		var themeCfg = A.cfg.theme || {};
+		if (themeCfg.fontSize) {
+			document.body.style.setProperty('--dsh-content-font-size', clamp(themeCfg.fontSize, 11, 24) + 'px');
+		}
+		if (themeCfg.fontFamily) {
+			document.body.style.setProperty('--dsh-font-family-text', '"' + String(themeCfg.fontFamily).replace(/"/g, '') + '", system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif');
+		} else {
+			document.body.style.removeProperty('--dsh-font-family-text');
+		}
+	} catch (error) { /* ignore */ }
+
 	setVar('--aether-input-border', input.border);
 	setVar('--aether-input-focus', rgba(parseColor(accentHex), 0.6));
 
