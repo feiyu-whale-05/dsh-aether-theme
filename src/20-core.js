@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.7';
+var VERSION = '1.0.8';
 
 var A = {
 	ctx: null,
@@ -439,6 +439,8 @@ function migrateBlurOff(cfg) {
 		if (cfg.glass.glassBlur === 18) { cfg.glass.glassBlur = 0; dirty = true; }
 		// 壁纸压暗遮罩：旧默认 0.32 视为「没调过」，归零（去灰罩）
 		if (cfg.wallpaper && cfg.wallpaper.dim === 0.32) { cfg.wallpaper.dim = 0; dirty = true; }
+		// 对话主区透明化：旧默认 0.52 视为「没调过」，归零（去灰色遮罩）
+		if (cfg.glass && cfg.glass.regions && cfg.glass.regions.base === 0.52) { cfg.glass.regions.base = 0; dirty = true; }
 		if (dirty) saveConfig('migrate-blur');
 	} catch (error) { /* ignore */ }
 	return cfg;
@@ -500,7 +502,7 @@ function defaultConfigFallback() {
 		},
 		glass: {
 			glassBlur: 0, backgroundBlur: 0, saturation: 1.15, border: 0.14,
-			regions: { base: 0.52, sidebar: 0.44, layers: 0.5, menu: 0.74, input: 0.58, bubble: 0.5 },
+			regions: { base: 0, sidebar: 0.44, layers: 0.5, menu: 0.74, input: 0.58, bubble: 0.5 },
 			inputFills: ['frosted'], inputFillOpacity: 0.6,
 		},
 		pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
