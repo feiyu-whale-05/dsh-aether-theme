@@ -631,7 +631,7 @@ function DiagTab(exportDiag) {
 				h('b', null, t('label.version')), h('span', null, VERSION),
 				h('b', null, t('label.anchors')), h('span', { className: ok ? 'aeth-ok' : 'aeth-bad' }, ok ? t('diag.canaryOk') : t('diag.canaryLost')),
 				h('b', null, t('label.strikes')), h('span', null, String(A.canary.strikes)),
-				h('b', null, 'Host'), h('span', { className: A.host.ok ? 'aeth-ok' : 'aeth-bad' }, A.host.ok ? 'ok · v' + A.host.version : t('state.hostDown')),
+				h('b', null, 'Host'), h('span', { className: A.host.ok ? 'aeth-ok' : 'aeth-bad' }, A.host.ok ? 'ok · v' + A.host.version : t('state.hostDown') + (A.host.error ? '（' + A.host.error + '）' : '')),
 				h('b', null, 'dark'), h('span', null, String(isDarkTheme())),
 				h('b', null, 'reduced-motion'), h('span', null, String(shouldReduceMotion())),
 				h('b', null, '#root'), h('span', null, String(anchors.root)),
@@ -640,7 +640,7 @@ function DiagTab(exportDiag) {
 			h('div', { className: 'aeth-row', style: { marginTop: '10px' } },
 				h('button', { className: 'aeth-btn primary', onClick: exportDiag }, '导出 diag.json'),
 				h('button', { className: 'aeth-btn', onClick: function () { reportDiag('panel'); } }, '刷新诊断'),
-				toggleRow(t('label.diag') + ' 浮层', A.cfg.diag.showOverlay, function (value) {
+				toggleRow(t('section.diag') + ' 浮层', A.cfg.diag.showOverlay, function (value) {
 					A.cfg.diag.showOverlay = value;
 					applyAppearance('diag');
 					saveConfig('diag').catch(function () { /* ignore */ });
@@ -653,8 +653,9 @@ function DiagTab(exportDiag) {
 				style: { maxHeight: '180px', overflow: 'auto', fontFamily: 'var(--dsw-font-mono, monospace)', fontSize: '11px', lineHeight: '1.6' },
 			},
 				(A.logs || []).slice(-40).map(function (entry, index) {
+					var detail = entry.meta && (entry.meta.message || entry.meta.slot) ? ' — ' + (entry.meta.slot ? '[' + entry.meta.slot + '] ' : '') + (entry.meta.message || '') : '';
 					return h('div', { key: index, className: entry.level === 'error' ? 'aeth-bad' : '' },
-						new Date(entry.t).toLocaleTimeString() + ' ' + entry.level + ' ' + entry.message,
+						new Date(entry.t).toLocaleTimeString() + ' ' + entry.level + ' ' + entry.message + detail,
 					);
 				}),
 			),
