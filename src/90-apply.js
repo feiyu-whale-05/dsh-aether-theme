@@ -163,6 +163,9 @@ var apply = function apply(ctx) {
 		notify();
 	});
 
+	// 2.5) 用户消息 markdown 自动渲染
+	try { startUserMarkdown(); } catch (error) { /* ignore */ }
+
 	// 3) 金丝雀 + 主题跟随 + 服务
 	if (A.cfg && A.cfg.diag && A.cfg.diag.enabled === false) {
 		// 诊断模块关掉也不影响金丝雀（安全兜底必须常驻）
@@ -184,6 +187,7 @@ var apply = function apply(ctx) {
 					try { if (A.rotationTimer) clearInterval(A.rotationTimer); } catch (error) { /* ignore */ }
 					try { if (A.diagTimer) clearInterval(A.diagTimer); } catch (error) { /* ignore */ }
 					try { if (A.observer) A.observer.disconnect(); } catch (error) { /* ignore */ }
+					try { stopUserMarkdown(); } catch (error) { /* ignore */ }
 					try { if (A.themeOff) A.themeOff(); } catch (error) { /* ignore */ }
 					try { if (A.mediaOff) A.mediaOff(); } catch (error) { /* ignore */ }
 					try { if (A.motionOff) A.motionOff(); } catch (error) { /* ignore */ }
