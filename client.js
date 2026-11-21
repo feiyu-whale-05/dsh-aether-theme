@@ -294,7 +294,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.1';
+		var VERSION = '1.0.2';
 
 		var A = {
 			ctx: null,
@@ -850,16 +850,15 @@ window.__ModuleLoader__.load({
 				'  --dsw-alias-border-l3: var(--aether-border-l3) !important;',
 				'  --dsw-alias-border-l4: var(--aether-border-l4) !important;',
 				'  --dsw-alias-brand-primary: var(--aether-accent) !important;',
-				'  --dsw-alias-button-primary-fill: var(--aether-accent) !important;',
-				'  --dsw-alias-button-primary-hover: var(--aether-accent-strong) !important;',
-				'  --dsw-alias-link: var(--aether-accent-readable) !important;',
-				'  --dsw-alias-label-primary-foreground: var(--aether-accent-ink) !important;',
-				'  --dsw-alias-label-on-color: var(--aether-accent-ink) !important;',
-				'  --dsw-alias-button-primary-hover: var(--aether-accent-readable) !important;',
-				'  --dsw-specific-sidebar-nav-item-active-accent: var(--aether-accent-readable) !important;',
-				'  --dsw-focus-ring-color: var(--aether-accent-readable) !important;',
-				'  --dsw-alias-state-business-primary: var(--aether-accent-readable) !important;',
-				'  --dsw-alias-state-business-secondary: var(--aether-accent-readable) !important;',
+				'  --dsw-alias-button-primary-fill: var(--aether-brand-blue) !important;',
+				'  --dsw-alias-button-primary-hover: var(--aether-brand-blue-hover) !important;',
+				'  --dsw-alias-link: var(--aether-brand-blue) !important;',
+				'  --dsw-alias-label-primary-foreground: var(--aether-brand-blue-ink) !important;',
+				'  --dsw-alias-label-on-color: var(--aether-brand-blue-ink) !important;',
+				'  --dsw-specific-sidebar-nav-item-active-accent: var(--aether-brand-blue) !important;',
+				'  --dsw-focus-ring-color: var(--aether-brand-blue) !important;',
+				'  --dsw-alias-state-business-primary: var(--aether-brand-blue) !important;',
+				'  --dsw-alias-state-business-secondary: var(--aether-brand-blue) !important;',
 				'}',
 				// 浅色分支兜底：变量缺失时也不出现「白底白字」
 				'html[data-dsh-aether] body:not([data-ds-dark-theme]) {',
@@ -1374,16 +1373,24 @@ window.__ModuleLoader__.load({
 
 			var input = inputFillColor(glass.inputFill || 'frosted', panel, accentHex, ink);
 
-			// 可读强调色：按钮底 / 链接 / 状态点 / 侧栏选中图标 / 光标 都用校准后的版本
+			// 官方品牌蓝：深色主题用 deepseek-400（#7aa2ff，DSH 原生「亮蓝」），浅色用 deepseek-500。
+			// 光标 / 侧栏工作区选中图标 / 审批允许按钮 / 链接 / 焦点环 固定用它，不跟壁纸取色，
+			// 保证永远是官方那抹蓝。文字色按 contrast 反解（亮蓝底给深字）。
+			var brandBlue = dark ? '#7aa2ff' : '#4176e6';
+			var brandBlueHover = dark ? '#9ab8ff' : '#2f5fcc';
+			var brandBlueInk = inkOn(brandBlue, 4.5);
+			var caretColor = brandBlue;
 			var sidebarSurface = composite({ r: panel.r, g: panel.g, b: panel.b, a: alphaSidebar }, wallpaperAvg);
 			var accentReadable = readableOn(accentHex, sidebarSurface, 4.5);
 			var accentInk = inkOn(accentHex, 4.5);
-			var caretColor = readableOn(accentHex, inputEffectiveColor(panel, wallpaperAvg, alphaInput), 4.5);
 
 			var vars = {
 				'--aether-accent': palette.accent,
 				'--aether-accent-readable': accentReadable,
 				'--aether-accent-ink': accentInk,
+				'--aether-brand-blue': brandBlue,
+				'--aether-brand-blue-hover': brandBlueHover,
+				'--aether-brand-blue-ink': brandBlueInk,
 				'--aether-caret': caretColor,
 				'--aether-accent-soft': palette.accentSoft,
 				'--aether-accent-strong': palette.accentStrong,
@@ -1436,6 +1443,9 @@ window.__ModuleLoader__.load({
 					setVar('--aether-accent-strong', pixelPalette.accent);
 					setVar('--aether-accent-readable', pixelPalette.accent);
 					setVar('--aether-accent-ink', inkOn(pixelPalette.accent, 4.5));
+					setVar('--aether-brand-blue', pixelPalette.accent);
+					setVar('--aether-brand-blue-hover', pixelPalette.inkSoft);
+					setVar('--aether-brand-blue-ink', inkOn(pixelPalette.accent, 4.5));
 					setVar('--aether-caret', pixelPalette.ink);
 					setVar('--aether-label-primary', pixelPalette.ink);
 					setVar('--aether-label-secondary', pixelPalette.inkSoft);
