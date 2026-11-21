@@ -37,13 +37,13 @@ function AetherSettingsSection() {
 	}
 
 	if (!cfg) {
-		return h('div', { className: 'aeth-root' },
+		return h('div', { className: 'aeth-root', 'data-aeth-surface': 'settings' },
 			h('div', { className: 'aeth-head' }, h('div', { className: 'aeth-title' }, t('nav.settings'))),
 			h('div', { className: 'aeth-card' }, A.host.ok ? t('state.loading') : t('state.hostDown')),
 		);
 	}
 
-	return h('div', { className: 'aeth-root' },
+	return h('div', { className: 'aeth-root', 'data-aeth-surface': 'settings' },
 		h('div', { className: 'aeth-head' },
 			h('div', { className: 'aeth-title' }, t('nav.settings')),
 			h('div', { className: 'aeth-sub' }, 'v' + VERSION + (status ? ' · ' + status : '')),
@@ -71,6 +71,29 @@ function AetherSettingsSection() {
 			sliderRow(t('label.glassBlur'), cfg.glass.glassBlur, 0, 64, 1, function (value) {
 				mutate(function (draft) { draft.glass.glassBlur = value; });
 			}, 'px'),
+		),
+		h('div', { className: 'aeth-card' },
+			h('h3', null, '字体与内容'),
+			selectRow('字体', FONT_CHOICES, cfg.theme.fontFamily || '', function (value) { mutate(function (draft) { draft.theme.fontFamily = value; }); }),
+			sliderRow('字号', cfg.theme.fontSize || 0, 0, 24, 1, function (value) { mutate(function (draft) { draft.theme.fontSize = value; }); }, cfg.theme.fontSize ? 'px' : '（官方）'),
+			row('加粗颜色', h('input', {
+				type: 'color',
+				value: cfg.theme.strongColor || '#ffe6a3',
+				onChange: function (event) { mutate(function (draft) { draft.theme.strongColor = event.target.value; }); },
+				style: { width: '40px', height: '28px', border: 'none', background: 'transparent' },
+			})),
+			sliderRow('面板内容缩放', (cfg.panel || {}).scale || 1.15, 0.8, 1.6, 0.05, function (value) {
+				mutate(function (draft) { draft.panel = Object.assign({}, draft.panel || {}, { scale: value }); });
+			}, '×'),
+			toggleRow('用户消息 Markdown 渲染', (cfg.userMd || {}).enabled !== false, function (value) {
+				mutate(function (draft) { draft.userMd = Object.assign({}, draft.userMd || {}, { enabled: value }); });
+			}),
+			toggleRow('鼠标流星尾缀', Boolean((cfg.meteor || {}).enabled), function (value) {
+				mutate(function (draft) { draft.meteor = Object.assign({}, draft.meteor || {}, { enabled: value }); });
+			}),
+			toggleRow('使用官方气泡样式', (cfg.bubble || {}).official !== false, function (value) {
+				mutate(function (draft) { draft.bubble = Object.assign({}, draft.bubble || {}, { official: value }); });
+			}),
 		),
 		h('div', { className: 'aeth-card' },
 			h('h3', null, '模块'),
