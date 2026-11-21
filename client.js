@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.4';
+		var VERSION = '1.0.5';
 
 		var A = {
 			ctx: null,
@@ -728,7 +728,17 @@ window.__ModuleLoader__.load({
 				if (value && typeof value === 'object' && !Array.isArray(value) && out[key] && typeof out[key] === 'object' && !Array.isArray(out[key])) {
 					out[key] = Object.assign({}, out[key], value);
 					// modules/regions 这类两级对象再合并一次，防止旧配置缺字段
-					Object.keys(out[key]).forEach(function (sub) {
+					// 旧配置迁移：inputFill 单值 → inputFills 数组
+				if (key === 'glass') {
+					if (out[key].inputFill) {
+						var legacyFill = out[key].inputFill;
+						if (!Array.isArray(out[key].inputFills) || !out[key].inputFills.length) out[key].inputFills = [legacyFill];
+						delete out[key].inputFill;
+					}
+					if (typeof out[key].inputFills === 'string') out[key].inputFills = [out[key].inputFills];
+					if (!Array.isArray(out[key].inputFills)) out[key].inputFills = ['frosted'];
+				}
+				Object.keys(out[key]).forEach(function (sub) {
 						if (value[sub] && typeof value[sub] === 'object' && out[key][sub] && typeof out[key][sub] === 'object') {
 							out[key][sub] = Object.assign({}, out[key][sub], value[sub]);
 						}
@@ -764,9 +774,9 @@ window.__ModuleLoader__.load({
 					rotation: { enabled: false, intervalMin: 30, timeOfDay: [6, 18], categories: [] },
 				},
 				glass: {
-					glassBlur: 18, backgroundBlur: 8, saturation: 1.15, border: 0.14,
+					glassBlur: 18, backgroundBlur: 0, saturation: 1.15, border: 0.14,
 					regions: { base: 0.52, sidebar: 0.44, layers: 0.5, menu: 0.74, input: 0.58, bubble: 0.5 },
-					inputFill: 'frosted', inputFillOpacity: 0.6,
+					inputFills: ['frosted'], inputFillOpacity: 0.6,
 				},
 				pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
 				widget: { position: 'bottom-right', showBalance: true, showToday: true, showTurn: true, warnBelow: 5 },
@@ -1310,14 +1320,26 @@ window.__ModuleLoader__.load({
 
 		/** 输入框的「有效底色」：半透明输入框叠在壁纸上，用于光标/文字可读性反解。 */
 		function inputEffectiveColor(panel, wallpaperColor, alpha) {
-			var fill = A.cfg && A.cfg.glass ? A.cfg.glass.inputFill : 'frosted';
+			var fillList = A.cfg && A.cfg.glass ? (Array.isArray(A.cfg.glass.inputFills) ? A.cfg.glass.inputFills : ['frosted']) : ['frosted'];
+			var fill = fillList.indexOf('transparent') !== -1 || fillList.indexOf('bordered') !== -1 ? 'transparent' : 'frosted';
 			var localAlpha = fill === 'transparent' || fill === 'bordered' ? 0.06 : Math.max(clamp(alpha, 0, 1), 0.5);
 			return composite({ r: panel.r, g: panel.g, b: panel.b, a: localAlpha }, wallpaperColor);
 		}
 
-		/** 输入框 6 种填充模式 → 实际底色/边框。 */
-		function inputFillColor(mode, panel, accent, ink) {
+		/** 输入框底色 + 边框组合（可多选叠加：磨砂底 + 渐变边框 + 描边…）。 */
+		function inputFillColor(modeInput, panel, accent, ink) {
 			var opacity = A.cfg && A.cfg.glass ? clamp(A.cfg.glass.inputFillOpacity, 0, 1) : 0.6;
+			var list = Array.isArray(modeInput) ? modeInput : [modeInput || 'frosted'];
+			var fillKinds = ['solid', 'frosted', 'transparent', 'tinted', 'accent', 'bordered'];
+			var mode = 'frosted';
+			for (var i = 0; i < list.length; i += 1) {
+				if (fillKinds.indexOf(list[i]) !== -1) { mode = list[i]; break; }
+			}
+			if (list.indexOf('wenxin') !== -1) {
+				// 渐变边框由 CSS 的 border-box 层负责；底色仍按选中的填充类走
+				var inner = inputFillColor(mode, panel, accent, ink);
+				return { bg: inner.bg === 'rgba(0,0,0,0)' ? rgba(panel, 0.55) : inner.bg, border: 'transparent' };
+			}
 			switch (mode) {
 				case 'solid':
 					return { bg: toHex(panel), border: rgba(ink, 0.14) };
@@ -1329,9 +1351,7 @@ window.__ModuleLoader__.load({
 					return { bg: 'rgba(0,0,0,0)', border: rgba(ink, 0.38) };
 				case 'accent':
 					return { bg: rgba(parseColor(accent), 0.16), border: rgba(parseColor(accent), 0.46) };
-				case 'wenxin':
-					// 渐变边框由 CSS 的 border-box 层负责，这里只给内层底色
-					return { bg: 'transparent', border: 'transparent' };
+
 				case 'frosted':
 				default:
 					return { bg: rgba(panel, opacity), border: rgba(ink, 0.16) };
@@ -1443,7 +1463,8 @@ window.__ModuleLoader__.load({
 			var border3 = rgba(ink, borderStrength * 1.6);
 			var border4 = rgba(ink, borderStrength * 2.2);
 
-			var input = inputFillColor(glass.inputFill || 'frosted', panel, accentHex, ink);
+			var inputFills = Array.isArray(glass.inputFills) ? glass.inputFills : ['frosted'];
+			var input = inputFillColor(inputFills, panel, accentHex, ink);
 
 			// 官方品牌蓝：深色主题用 deepseek-400（#7aa2ff，DSH 原生「亮蓝」），浅色用 deepseek-500。
 			// 光标 / 侧栏工作区选中图标 / 审批允许按钮 / 链接 / 焦点环 固定用它，不跟壁纸取色，
@@ -1507,7 +1528,7 @@ window.__ModuleLoader__.load({
 				setVar('--aether-wenxin-a', dark ? '#3d7dfe' : '#2f6bff');
 				setVar('--aether-wenxin-b', dark ? '#6a59fe' : '#5b48f0');
 				setVar('--aether-wenxin-c', dark ? '#9142ff' : '#7b2ee0');
-				if (glass.inputFill === 'wenxin') {
+				if (Array.isArray(glass.inputFills) && glass.inputFills.indexOf('wenxin') !== -1) {
 					document.documentElement.setAttribute('data-aether-input', 'wenxin');
 				} else {
 					document.documentElement.removeAttribute('data-aether-input');
@@ -2782,17 +2803,37 @@ window.__ModuleLoader__.load({
 				),
 				h('div', { className: 'aeth-card' },
 					h('h3', null, t('label.inputFill')),
-					chipsRow('填充模式', [
-						{ value: 'frosted', label: t('input.frosted') },
-						{ value: 'solid', label: t('input.solid') },
-						{ value: 'transparent', label: t('input.transparent') },
-						{ value: 'tinted', label: t('input.tinted') },
-						{ value: 'bordered', label: t('input.bordered') },
-						{ value: 'accent', label: t('input.accent') },
-						{ value: 'wenxin', label: '文心渐变边框' },
-					], glass.inputFill, function (value) {
-						mutate(function (draft) { draft.glass.inputFill = value; }, { wallpaper: false });
-					}),
+					row('填充模式（可多选叠加）',
+						h('div', { className: 'aeth-chips' },
+							[
+								['frosted', t('input.frosted') + ' · 底色'],
+								['solid', t('input.solid') + ' · 底色'],
+								['transparent', t('input.transparent') + ' · 底色'],
+								['tinted', t('input.tinted') + ' · 底色'],
+								['accent', t('input.accent') + ' · 底色'],
+								['bordered', t('input.bordered') + ' · 边框'],
+								['wenxin', '文心渐变 · 边框'],
+							].map(function (pair) {
+								var list = Array.isArray(glass.inputFills) ? glass.inputFills : ['frosted'];
+								var on = list.indexOf(pair[0]) !== -1;
+								return h('button', {
+									key: pair[0],
+									className: 'aeth-chip' + (on ? ' on' : ''),
+									onClick: function () {
+										mutate(function (draft) {
+											var next = Array.isArray(draft.glass.inputFills) ? draft.glass.inputFills.slice() : [];
+											var index = next.indexOf(pair[0]);
+											if (index === -1) next.push(pair[0]); else next.splice(index, 1);
+											if (!next.length) next = ['frosted'];
+											draft.glass.inputFills = next;
+										}, { wallpaper: false });
+									},
+								}, pair[1]);
+							}),
+						),
+					),
+					h('div', { className: 'aeth-note', style: { marginLeft: '160px', marginTop: '-4px' } },
+						'底色类只生效优先级最高的一个（实色 > 磨砂 > 透明 > 淡染 > 主色 > 描边）；文心渐变是边框层，可与任意底色叠加。'),
 					sliderRow('填充不透明度', glass.inputFillOpacity, 0, 1, 0.01, function (value) {
 						mutate(function (draft) { draft.glass.inputFillOpacity = value; }, { wallpaper: false });
 					}),
