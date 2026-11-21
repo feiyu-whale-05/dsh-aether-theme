@@ -203,6 +203,7 @@ var apply = function apply(ctx) {
 					try {
 						document.documentElement.removeAttribute('data-dsh-aether');
 						document.documentElement.removeAttribute('data-dsh-aether-pixel');
+						clearInputHosts();
 					} catch (error) { /* ignore */ }
 					try { delete window.__DSH_AETHER_THEME__; } catch (error) { /* ignore */ }
 					A.subscribers = [];
