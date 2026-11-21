@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.1';
+var VERSION = '1.0.2';
 
 var A = {
 	ctx: null,
@@ -561,16 +561,15 @@ function buildStyleText() {
 		'  --dsw-alias-border-l3: var(--aether-border-l3) !important;',
 		'  --dsw-alias-border-l4: var(--aether-border-l4) !important;',
 		'  --dsw-alias-brand-primary: var(--aether-accent) !important;',
-		'  --dsw-alias-button-primary-fill: var(--aether-accent) !important;',
-		'  --dsw-alias-button-primary-hover: var(--aether-accent-strong) !important;',
-		'  --dsw-alias-link: var(--aether-accent-readable) !important;',
-		'  --dsw-alias-label-primary-foreground: var(--aether-accent-ink) !important;',
-		'  --dsw-alias-label-on-color: var(--aether-accent-ink) !important;',
-		'  --dsw-alias-button-primary-hover: var(--aether-accent-readable) !important;',
-		'  --dsw-specific-sidebar-nav-item-active-accent: var(--aether-accent-readable) !important;',
-		'  --dsw-focus-ring-color: var(--aether-accent-readable) !important;',
-		'  --dsw-alias-state-business-primary: var(--aether-accent-readable) !important;',
-		'  --dsw-alias-state-business-secondary: var(--aether-accent-readable) !important;',
+		'  --dsw-alias-button-primary-fill: var(--aether-brand-blue) !important;',
+		'  --dsw-alias-button-primary-hover: var(--aether-brand-blue-hover) !important;',
+		'  --dsw-alias-link: var(--aether-brand-blue) !important;',
+		'  --dsw-alias-label-primary-foreground: var(--aether-brand-blue-ink) !important;',
+		'  --dsw-alias-label-on-color: var(--aether-brand-blue-ink) !important;',
+		'  --dsw-specific-sidebar-nav-item-active-accent: var(--aether-brand-blue) !important;',
+		'  --dsw-focus-ring-color: var(--aether-brand-blue) !important;',
+		'  --dsw-alias-state-business-primary: var(--aether-brand-blue) !important;',
+		'  --dsw-alias-state-business-secondary: var(--aether-brand-blue) !important;',
 		'}',
 		// 浅色分支兜底：变量缺失时也不出现「白底白字」
 		'html[data-dsh-aether] body:not([data-ds-dark-theme]) {',
