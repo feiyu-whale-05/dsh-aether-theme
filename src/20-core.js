@@ -1,0 +1,790 @@
+// ── core：状态、颜色算法、CSS 注入、API、金丝雀 ──────────────────────────
+// 关键设计：所有视觉改动都收敛到「CSS 变量 + 一个隔离舞台层」两件事。
+// 不改宿主 DOM 结构、不移动节点、不覆盖内联样式，因此任何一步失败都能
+// 通过 removeStyle()/removeStage() 瞬间回到原生外观。
+
+var PANEL_ID = 'aether-theme';
+var STORAGE_KEY = 'dsh-aether:prefs:v1';
+var VERSION = '1.0.0';
+
+var A = {
+	ctx: null,
+	ready: false,
+	host: { ok: false, version: '', wallpapers: [], usage: null, diag: null },
+	cfg: null,
+	defaults: null,
+	styleEl: null,
+	stageEl: null,
+	layerEls: [],
+	scanEl: null,
+	canary: { strikes: 0, lost: {}, disabled: false, lastRun: 0, timer: null },
+	rotationTimer: null,
+	derived: null,
+	services: {},
+	flags: { reduceMotion: false, dark: true },
+	lastDiag: null,
+	lastUpload: 0,
+	subscribers: [],
+	startedAt: Date.now(),
+	logs: [],
+};
+
+function pushLog(level, message, meta) {
+	try {
+		A.logs.push({ t: Date.now(), level: level, message: message, meta: meta });
+		if (A.logs.length > 120) A.logs.splice(0, A.logs.length - 120);
+	} catch (error) { /* ignore */ }
+}
+
+// ── 数字/颜色工具 ───────────────────────────────────────────────────────
+function clamp(value, min, max) {
+	var n = Number(value);
+	if (!Number.isFinite(n)) n = min;
+	return Math.min(max, Math.max(min, n));
+}
+
+function parseColor(input) {
+	var text = String(input || '').trim();
+	var hex = /^#([0-9a-f]{3,8})$/i.exec(text);
+	if (hex) {
+		var raw = hex[1];
+		if (raw.length === 3 || raw.length === 4) {
+			raw = raw.split('').map(function (ch) { return ch + ch; }).join('');
+		}
+		if (raw.length === 6 || raw.length === 8) {
+			return {
+				r: parseInt(raw.slice(0, 2), 16),
+				g: parseInt(raw.slice(2, 4), 16),
+				b: parseInt(raw.slice(4, 6), 16),
+				a: raw.length === 8 ? parseInt(raw.slice(6, 8), 16) / 255 : 1,
+			};
+		}
+	}
+	var rgb = /^rgba?\(([^)]+)\)$/i.exec(text);
+	if (rgb) {
+		var parts = rgb[1].split(/[,/\s]+/).filter(Boolean).map(Number);
+		if (parts.length >= 3 && parts.every(function (n) { return Number.isFinite(n); })) {
+			return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? clamp(parts[3], 0, 1) : 1 };
+		}
+	}
+	return { r: 128, g: 128, b: 128, a: 1 };
+}
+
+/** 统一把 hex 字符串 / 残缺对象转成安全颜色对象，杜绝 NaN 传导。 */
+function asColor(c) {
+	if (typeof c === 'string') return parseColor(c);
+	if (!c || !Number.isFinite(c.r) || !Number.isFinite(c.g) || !Number.isFinite(c.b)) {
+		return { r: 0, g: 0, b: 0, a: 1 };
+	}
+	return c;
+}
+
+function toHex(c) {
+	var r = Math.round(clamp(c.r, 0, 255));
+	var g = Math.round(clamp(c.g, 0, 255));
+	var b = Math.round(clamp(c.b, 0, 255));
+	return '#' + [r, g, b].map(function (n) { return n.toString(16).padStart(2, '0'); }).join('');
+}
+
+function rgba(c, alpha) {
+	var a = alpha === undefined ? (c.a === undefined ? 1 : c.a) : clamp(alpha, 0, 1);
+	return 'rgba(' + Math.round(c.r) + ', ' + Math.round(c.g) + ', ' + Math.round(c.b) + ', ' + (Math.round(a * 1000) / 1000) + ')';
+}
+
+/** WCAG 2.1 相对亮度。 */
+function luminance(input) {
+	var c = asColor(input);
+	var channels = [c.r, c.g, c.b].map(function (v) {
+		var s = clamp(v, 0, 255) / 255;
+		return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+	});
+	return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+/** WCAG 对比度：两色之间 1~21。 */
+function contrastRatio(a, b) {
+	var la = luminance(a);
+	var lb = luminance(b);
+	var hi = Math.max(la, lb);
+	var lo = Math.min(la, lb);
+	return (hi + 0.05) / (lo + 0.05);
+}
+
+function mixColor(a, b, amount) {
+	var ca = asColor(a);
+	var cb = asColor(b);
+	var t = clamp(amount, 0, 1);
+	return {
+		r: ca.r + (cb.r - ca.r) * t,
+		g: ca.g + (cb.g - ca.g) * t,
+		b: ca.b + (cb.b - ca.b) * t,
+		a: (ca.a === undefined ? 1 : ca.a) + ((cb.a === undefined ? 1 : cb.a) - (ca.a === undefined ? 1 : ca.a)) * t,
+	};
+}
+
+/** 把颜色按 alpha 混合到另一色上（等价于在背景上看到的有效色）。 */
+function composite(fg, bg) {
+	var f = asColor(fg);
+	var alpha = f.a === undefined ? 1 : f.a;
+	return mixColor(bg, f, alpha);
+}
+
+function shiftColor(input, delta) {
+	var c = asColor(input);
+	var target = delta >= 0 ? { r: 255, g: 255, b: 255, a: 1 } : { r: 0, g: 0, b: 0, a: 1 };
+	return mixColor(c, target, Math.abs(delta));
+}
+
+function rotateHue(input, degrees) {
+	var c = asColor(input);
+	var r = c.r / 255;
+	var g = c.g / 255;
+	var b = c.b / 255;
+	var max = Math.max(r, g, b);
+	var min = Math.min(r, g, b);
+	var l = (max + min) / 2;
+	var s = max === min ? 0 : l < 0.5 ? (max - min) / (max + min) : (max - min) / (2 - max - min);
+	var h = 0;
+	if (max !== min) {
+		var d = max - min;
+		if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+		else if (max === g) h = ((b - r) / d + 2) / 6;
+		else h = ((r - g) / d + 4) / 6;
+	}
+	var hue = (h + degrees / 360 + 1) % 1;
+	var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+	var p = 2 * l - q;
+	function hueTo(channel) {
+		if (channel < 0) channel += 1;
+		if (channel > 1) channel -= 1;
+		if (channel < 1 / 6) return p + (q - p) * 6 * channel;
+		if (channel < 1 / 2) return q;
+		if (channel < 2 / 3) return p + (q - p) * (2 / 3 - channel) * 6;
+		return p;
+	}
+	return {
+		r: hueTo(hue + 1 / 3) * 255,
+		g: hueTo(hue) * 255,
+		b: hueTo(hue - 1 / 3) * 255,
+		a: 1,
+	};
+}
+
+/**
+ * WCAG 动态反解：在给定有效背景色上，为目标对比度选一个前景色。
+ * 优先保黑/白（原生观感），两者都不达标时取更接近的并标记 needsFallback，
+ * 由调用方（ensureContrast）去调整面板不透明度兜底。
+ */
+function solveForeground(bg, target, prefer) {
+	var white = { r: 255, g: 255, b: 255, a: 1 };
+	var black = { r: 0, g: 0, b: 0, a: 1 };
+	var cw = contrastRatio(bg, white);
+	var cb = contrastRatio(bg, black);
+	var threshold = target || 7;
+	if (prefer === 'dark' && cb >= threshold) return { color: black, ok: true, ratio: cb };
+	if (prefer !== 'dark' && cw >= threshold) return { color: white, ok: true, ratio: cw };
+	if (cb >= threshold) return { color: black, ok: true, ratio: cb };
+	if (cw >= threshold) return { color: white, ok: true, ratio: cw };
+	return { color: cw >= cb ? white : black, ok: false, ratio: Math.max(cw, cb) };
+}
+
+/**
+ * 对比度兜底：面板半透明时，先算「面板叠在壁纸上」的有效色；如果目标对比度
+ * 达不到，就把面板不透明度往 1 推，直到达标（最多推到 1）。返回最终 alpha。
+ */
+function ensureContrast(panelColor, panelAlpha, wallpaperColor, inkColor, target) {
+	var alpha = clamp(panelAlpha, 0, 1);
+	var wanted = target || 7;
+	for (var i = 0; i < 40; i += 1) {
+		var effective = composite({ r: panelColor.r, g: panelColor.g, b: panelColor.b, a: alpha }, wallpaperColor);
+		if (contrastRatio(effective, inkColor) >= wanted) return alpha;
+		if (alpha >= 1) return 1;
+		alpha = Math.min(1, alpha + 0.025);
+	}
+	return 1;
+}
+
+/** 最终自检：算出来的文字色如果在底色上看不清（对比度 < 3），强制回退到纯白/纯黑。 */
+function finalInk(labelHex, bgColor) {
+	var ink = parseColor(labelHex);
+	if (contrastRatio(bgColor, ink) >= 3) return labelHex;
+	var decision = solveForeground(bgColor, 4.5, luminance(asColor(bgColor)) < 0.5 ? undefined : 'dark');
+	return toHex(decision.color);
+}
+
+/** 从壁纸采样平均亮度 + 主色（缩小到 48x48 后按 4bit/通道取众数桶）。 */
+function sampleImage(source) {
+	return new Promise(function (resolve) {
+		var img = new Image();
+		img.crossOrigin = 'anonymous';
+		img.onload = function () {
+			try {
+				var w = 48;
+				var h = Math.max(1, Math.round(48 * (img.naturalHeight || 1) / (img.naturalWidth || 1)));
+				var canvas = document.createElement('canvas');
+				canvas.width = w;
+				canvas.height = h;
+				var context = canvas.getContext('2d', { willReadFrequently: true });
+				context.drawImage(img, 0, 0, w, h);
+				var data = context.getImageData(0, 0, w, h).data;
+				var sum = { r: 0, g: 0, b: 0 };
+				var buckets = {};
+				var pixels = 0;
+				for (var i = 0; i < data.length; i += 4) {
+					var r = data[i];
+					var g = data[i + 1];
+					var b = data[i + 2];
+					sum.r += r; sum.g += g; sum.b += b;
+					pixels += 1;
+					var key = (r >> 4) + ',' + (g >> 4) + ',' + (b >> 4);
+					var bucket = buckets[key] || (buckets[key] = { n: 0, r: 0, g: 0, b: 0 });
+					bucket.n += 1; bucket.r += r; bucket.g += g; bucket.b += b;
+				}
+				var avg = { r: sum.r / pixels, g: sum.g / pixels, b: sum.b / pixels, a: 1 };
+				var best = null;
+				Object.keys(buckets).forEach(function (key) {
+					var bucket = buckets[key];
+					if (!best || bucket.n > best.n) best = bucket;
+				});
+				var dominant = best
+					? { r: best.r / best.n, g: best.g / best.n, b: best.b / best.n, a: 1 }
+					: avg;
+				resolve({ avg: avg, dominant: dominant, brightness: luminance(avg) });
+			} catch (error) {
+				resolve(null);
+			}
+		};
+		img.onerror = function () { resolve(null); };
+		try {
+			img.src = source;
+		} catch (error) {
+			resolve(null);
+		}
+	});
+}
+
+/** 智能色彩衍生：主色 → 辅助色 + 三档色阶（浅/中/深）。 */
+function derivePalette(baseHex) {
+	var base = parseColor(baseHex);
+	return {
+		accent: toHex(base),
+		accentSoft: toHex(shiftColor(base, 0.22)),
+		accentStrong: toHex(shiftColor(base, -0.18)),
+		secondary: toHex(rotateHue(base, 36)),
+		tertiary: toHex(rotateHue(base, -28)),
+		ink: luminance(base) > 0.45 ? toHex(shiftColor(base, -0.62)) : toHex(shiftColor(base, 0.72)),
+	};
+}
+
+// ── 主题检测 / 环境 ─────────────────────────────────────────────────────
+function isDarkTheme() {
+	// 三重判定：宿主三种落点都认，避免「界面是深色、我按浅色算」→ 深底黑字。
+	try {
+		if (document.body && document.body.hasAttribute('data-ds-dark-theme')) return true;
+	} catch (error) { /* 继续 */ }
+	try {
+		var source = document.documentElement.getAttribute('data-ds-theme-source');
+		if (source === 'dark') return true;
+		if (source === 'light') return false;
+	} catch (error) { /* 继续 */ }
+	try {
+		var scheme = window.getComputedStyle(document.documentElement).colorScheme || '';
+		if (scheme.indexOf('dark') !== -1) return true;
+		if (scheme.indexOf('light') !== -1) return false;
+	} catch (error) { /* 继续 */ }
+	// 宿主还没初始化主题：跟系统走
+	try {
+		return window.matchMedia('(prefers-color-scheme: dark)').matches;
+	} catch (error) {
+		return true;
+	}
+}
+
+function prefersReducedMotion() {
+	try {
+		return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+	} catch (error) {
+		return false;
+	}
+}
+
+function shouldReduceMotion() {
+	var mode = A.cfg && A.cfg.theme ? A.cfg.theme.reducedMotion : 'auto';
+	if (mode === 'always') return true;
+	if (mode === 'never') return false;
+	return prefersReducedMotion();
+}
+
+// ── API ─────────────────────────────────────────────────────────────────
+function readToken() {
+	try {
+		return String(window.__DSH_AETHER_TOKEN__ || '');
+	} catch (error) {
+		return '';
+	}
+}
+
+function readApiBase() {
+	try {
+		var value = String(window.__DSH_AETHER_API__ || '');
+		if (value) return value.replace(/\/+$/, '');
+	} catch (error) { /* ignore */ }
+	return '/dsh-aether';
+}
+
+function apiFetch(path, options) {
+	var request = options || {};
+	var headers = Object.assign({}, request.headers || {});
+	if (A.token) headers['x-dsh-aether-token'] = A.token;
+	var init = {
+		method: request.method || 'GET',
+		headers: headers,
+		credentials: 'same-origin',
+	};
+	if (request.body !== undefined) init.body = request.body;
+	if (request.signal) init.signal = request.signal;
+	var url = A.apiBase + path;
+	return fetch(url, init).then(function (response) {
+		if (!response.ok) {
+			var error = new Error('HTTP ' + response.status);
+			error.status = response.status;
+			throw error;
+		}
+		var type = response.headers.get('content-type') || '';
+		return type.indexOf('application/json') !== -1 ? response.json() : response.text();
+	});
+}
+
+function loadState() {
+	return apiFetch('/api/state').then(function (payload) {
+		A.host.ok = true;
+		A.host.version = payload.version || VERSION;
+		A.host.wallpapers = Array.isArray(payload.wallpapers) ? payload.wallpapers : [];
+		A.host.usage = payload.usage || null;
+		A.host.diag = payload.diag || null;
+		A.defaults = payload.defaultAppearance || null;
+		A.cfg = mergeConfig(payload.appearance, payload.defaultAppearance);
+		return payload;
+	}).catch(function (error) {
+		A.host.ok = false;
+		pushLog('warn', 'state 读取失败', { message: String(error && error.message) });
+		if (!A.cfg && A.defaults) A.cfg = mergeConfig(null, A.defaults);
+		throw error;
+	});
+}
+
+function mergeConfig(saved, defaults) {
+	var base = defaults || defaultConfigFallback();
+	var out = JSON.parse(JSON.stringify(base));
+	if (!saved || typeof saved !== 'object') return out;
+	Object.keys(saved).forEach(function (key) {
+		var value = saved[key];
+		if (value && typeof value === 'object' && !Array.isArray(value) && out[key] && typeof out[key] === 'object' && !Array.isArray(out[key])) {
+			out[key] = Object.assign({}, out[key], value);
+			// modules/regions 这类两级对象再合并一次，防止旧配置缺字段
+			Object.keys(out[key]).forEach(function (sub) {
+				if (value[sub] && typeof value[sub] === 'object' && out[key][sub] && typeof out[key][sub] === 'object') {
+					out[key][sub] = Object.assign({}, out[key][sub], value[sub]);
+				}
+			});
+		} else {
+			out[key] = value;
+		}
+	});
+	return out;
+}
+
+function defaultConfigFallback() {
+	return {
+		version: 1,
+		enabled: true,
+		modules: {
+			theme: { enabled: true }, wallpaper: { enabled: true }, glass: { enabled: true },
+			pixel: { enabled: false }, widget: { enabled: true }, pet: { enabled: false },
+			boot: { enabled: true }, diag: { enabled: true },
+		},
+		theme: {
+			palette: 'auto', accent: '#7aa2ff', secondary: '#9d7cff', deriveFromWallpaper: true,
+			contrastTarget: 7, mixMode: 'multiply', transitionMs: 420, reducedMotion: 'auto',
+		},
+		wallpaper: {
+			mode: 'none', source: 'preset', id: '', cssPreset: 'aurora', fit: 'cover',
+			dim: 0.32, blur: 0,
+			rotation: { enabled: false, intervalMin: 30, timeOfDay: [6, 18], categories: [] },
+		},
+		glass: {
+			glassBlur: 18, backgroundBlur: 8, saturation: 1.15, border: 0.14,
+			regions: { base: 0.52, sidebar: 0.44, layers: 0.5, menu: 0.74, input: 0.58, bubble: 0.5 },
+			inputFill: 'frosted', inputFillOpacity: 0.6,
+		},
+		pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
+		widget: { position: 'bottom-right', showBalance: true, showToday: true, showTurn: true, warnBelow: 5 },
+		pet: { species: 'whale', size: 96, follow: true, idle: 'float' },
+		boot: { durationMs: 2200, style: 'ripple', skipOnReducedMotion: true },
+		diag: { showOverlay: false, canaryStrikes: 40 },
+	};
+}
+
+function saveConfig(reason) {
+	if (!A.cfg) return Promise.reject(new Error('no config'));
+	return apiFetch('/api/config', {
+		method: 'PUT',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ appearance: A.cfg }),
+	}).then(function (result) {
+		pushLog('info', '配置已保存', { reason: reason || 'save' });
+		try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(A.cfg)); } catch (error) { /* 端口变了 localStorage 不可用也没关系 */ }
+		return result;
+	}).catch(function (error) {
+		// Host 挂了也要能用：localStorage 兜底（同端口内刷新不丢）
+		try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(A.cfg)); } catch (ignored) { /* ignore */ }
+		pushLog('warn', '配置保存失败（已写 localStorage 兜底）', { message: String(error && error.message) });
+		throw error;
+	});
+}
+
+function resetConfig() {
+	return apiFetch('/api/reset', { method: 'POST' }).then(function (payload) {
+		A.cfg = mergeConfig(payload.appearance, payload.defaultAppearance || A.defaults);
+		try { window.localStorage.removeItem(STORAGE_KEY); } catch (error) { /* ignore */ }
+		applyAppearance('reset');
+		return payload;
+	});
+}
+
+function loadLocalCache() {
+	try {
+		var raw = window.localStorage.getItem(STORAGE_KEY);
+		if (!raw) return null;
+		return JSON.parse(raw);
+	} catch (error) {
+		return null;
+	}
+}
+
+// ── 舞台层（隔离节点，不改宿主结构） ────────────────────────────────────
+function ensureStage() {
+	if (A.stageEl && document.body.contains(A.stageEl)) return A.stageEl;
+	var stage = document.createElement('div');
+	stage.id = 'dsh-aether-stage';
+	stage.setAttribute('aria-hidden', 'true');
+	stage.setAttribute('data-dsh-aether', 'stage');
+	// z-index:-1：画在 body 背景之上、普通流内容之下；pointer-events:none 保证不吃点击
+	stage.style.cssText = 'position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;background:transparent;';
+	try {
+		document.body.insertBefore(stage, document.body.firstChild);
+	} catch (error) {
+		document.body.appendChild(stage);
+	}
+	A.stageEl = stage;
+	return stage;
+}
+
+function removeStage() {
+	if (A.stageEl) {
+		try { A.stageEl.remove(); } catch (error) { /* ignore */ }
+		A.stageEl = null;
+	}
+	A.layerEls = [];
+	if (A.scanEl) {
+		try { A.scanEl.remove(); } catch (error) { /* ignore */ }
+		A.scanEl = null;
+	}
+}
+
+// ── 样式注入（只注入一次，之后只改变量） ────────────────────────────────
+function buildStyleText() {
+	return [
+		// 宿主透明化：只改背景相关，不碰布局/尺寸/定位
+		'html[data-dsh-aether] { background: #0b0d12; }',
+		'html[data-dsh-aether] body { background: transparent !important; }',
+		'html[data-dsh-aether] #root { background: transparent !important; }',
+		'html[data-dsh-aether] #root { backdrop-filter: blur(var(--aether-bg-blur, 0px)) saturate(var(--aether-saturation, 1.15)); }',
+		'html[data-dsh-aether] #root > div { isolation: isolate; }',
+		// 变量桥：把 js 计算的 --aether-* 映射到宿主 --dsw-* 语义变量
+		'html[data-dsh-aether] body {',
+		'  --dsw-alias-bg-base: var(--aether-bg-base) !important;',
+		'  --dsw-alias-bg-layer-1: var(--aether-bg-layer-1) !important;',
+		'  --dsw-alias-bg-layer-2: var(--aether-bg-layer-2) !important;',
+		'  --dsw-alias-bg-layer-3: var(--aether-bg-layer-3) !important;',
+		'  --dsw-alias-bg-overlay: var(--aether-bg-overlay) !important;',
+		'  --dsw-alias-bg-module-platform: var(--aether-bg-module) !important;',
+		'  --dsw-alias-bg-multi-select: var(--aether-bg-module) !important;',
+		'  --dsw-alias-bg-overlay: var(--aether-bg-overlay) !important;',
+		'  --dsw-specific-sidebar-fill: var(--aether-sidebar-fill) !important;',
+		'  --dsw-specific-sidebar-glass-fill: var(--aether-sidebar-fill) !important;',
+		'  --dsw-specific-menu: var(--aether-menu-fill) !important;',
+		'  --dsw-specific-input-major: var(--aether-input-fill) !important;',
+		'  --dsw-specific-selector: var(--aether-input-fill) !important;',
+		'  --dsw-specific-bubble: var(--aether-bubble-fill) !important;',
+		'  --dsw-specific-bubble-highlight: var(--aether-bubble-highlight) !important;',
+		'  --dsw-alias-markdown-code-block: var(--aether-code-bg) !important;',
+		'  --dsw-alias-markdown-code-block-banner: var(--aether-code-banner) !important;',
+		'  --dsw-alias-markdown-inline-code: var(--aether-inline-code) !important;',
+		'  --dsw-alias-label-primary: var(--aether-label-primary, #e8eaed) !important;',
+		'  --dsw-alias-label-secondary: var(--aether-label-secondary, #c3c7ce) !important;',
+		'  --dsw-alias-label-tertiary: var(--aether-label-tertiary, #aeb3bc) !important;',
+		'  --dsw-alias-label-caption: var(--aether-label-caption, #9aa0aa) !important;',
+		'  --dsw-alias-label-dimmed: var(--aether-label-dimmed, #7d838d) !important;',
+		'  --dsw-alias-border-l1: var(--aether-border-l1) !important;',
+		'  --dsw-alias-border-l2: var(--aether-border-l2) !important;',
+		'  --dsw-alias-border-l3: var(--aether-border-l3) !important;',
+		'  --dsw-alias-border-l4: var(--aether-border-l4) !important;',
+		'  --dsw-alias-brand-primary: var(--aether-accent) !important;',
+		'  --dsw-alias-button-primary-fill: var(--aether-accent) !important;',
+		'  --dsw-alias-button-primary-hover: var(--aether-accent-strong) !important;',
+		'  --dsw-alias-link: var(--aether-accent) !important;',
+		'  --dsw-alias-state-business-primary: var(--aether-accent) !important;',
+		'}',
+		// 浅色分支兜底：变量缺失时也不出现「白底白字」
+		'html[data-dsh-aether] body:not([data-ds-dark-theme]) {',
+		'  --dsw-alias-label-primary: var(--aether-label-primary, #1a1c22) !important;',
+		'  --dsw-alias-label-secondary: var(--aether-label-secondary, #3b3f47) !important;',
+		'  --dsw-alias-label-tertiary: var(--aether-label-tertiary, #4d525b) !important;',
+		'  --dsw-alias-label-caption: var(--aether-label-caption, #5d636d) !important;',
+		'}',
+		// 面板玻璃：只对有明确语义的容器做 backdrop-filter（不改结构/位置）
+		'html[data-dsh-aether] [role="dialog"],',
+		'html[data-dsh-aether] [role="menu"],',
+		'html[data-dsh-aether] [data-global-panel],',
+		'html[data-dsh-aether] [data-rightbar-col] {',
+		'  backdrop-filter: blur(var(--aether-glass-blur, 18px)) saturate(var(--aether-saturation, 1.15));',
+		'}',
+		// 壁纸层：双缓冲淡入淡出（防闪烁）
+		'#dsh-aether-stage > .aether-wall { position:absolute; inset:0; opacity:0; transition:opacity var(--aether-transition, 420ms) ease; will-change:opacity; }',
+		'#dsh-aether-stage > .aether-wall.is-on { opacity:1; }',
+		'#dsh-aether-stage > .aether-wall > img, #dsh-aether-stage > .aether-wall > video { width:100%; height:100%; display:block; object-fit:cover; }',
+		'#dsh-aether-stage > .aether-veil { position:absolute; inset:0; background: var(--aether-veil); pointer-events:none; mix-blend-mode: var(--aether-content-blend, normal); }',
+		// 纯 CSS 预设背景
+		'#dsh-aether-stage .aether-css { position:absolute; inset:0; }',
+		'#dsh-aether-stage .aether-css.aurora { background: radial-gradient(120% 90% at 15% 10%, #2b3a67 0%, transparent 55%), radial-gradient(100% 80% at 85% 20%, #5b3a7e 0%, transparent 60%), radial-gradient(120% 100% at 50% 100%, #12343b 0%, transparent 65%), linear-gradient(160deg, #0b1020 0%, #101a2e 50%, #0a0f18 100%); animation: aether-drift 28s ease-in-out infinite alternate; }',
+		'#dsh-aether-stage .aether-css.mesh { background-color: #0e1220; background-image: radial-gradient(at 20% 25%, #3b5bdb55 0, transparent 50%), radial-gradient(at 78% 15%, #9d7cff4d 0, transparent 50%), radial-gradient(at 60% 80%, #4ed6c033 0, transparent 55%), radial-gradient(at 12% 85%, #ff9f4340 0, transparent 50%); animation: aether-drift 24s ease-in-out infinite alternate; }',
+		'#dsh-aether-stage .aether-css.ocean { background: linear-gradient(180deg, #06121f 0%, #0a2233 45%, #0d3742 75%, #123f45 100%); animation: aether-tide 18s ease-in-out infinite alternate; }',
+		'#dsh-aether-stage .aether-css.ember { background: radial-gradient(90% 70% at 50% 110%, #7a2a12 0%, transparent 60%), radial-gradient(70% 60% at 20% 20%, #3a1c2e 0%, transparent 60%), linear-gradient(160deg, #120a10 0%, #1d0f14 100%); animation: aether-drift 32s ease-in-out infinite alternate; }',
+		'#dsh-aether-stage .aether-css.sakura { background: radial-gradient(100% 80% at 70% 15%, #f6d5e0aa 0%, transparent 55%), radial-gradient(90% 80% at 15% 70%, #cfe3f5aa 0%, transparent 60%), linear-gradient(160deg, #f7f2f6 0%, #eef1f7 100%); }',
+		'#dsh-aether-stage .aether-css.stars { background-color: #05070e; background-image: radial-gradient(1.6px 1.6px at 12% 18%, #ffffffcc 50%, transparent 51%), radial-gradient(1.4px 1.4px at 38% 62%, #ffffffaa 50%, transparent 51%), radial-gradient(1.8px 1.8px at 66% 28%, #bcd4ffcc 50%, transparent 51%), radial-gradient(1.3px 1.3px at 82% 74%, #ffffff99 50%, transparent 51%), radial-gradient(1.5px 1.5px at 24% 86%, #d9e6ffbb 50%, transparent 51%), radial-gradient(1.2px 1.2px at 54% 8%, #ffffff88 50%, transparent 51%), linear-gradient(160deg, #05070e 0%, #0a1024 100%); animation: aether-twinkle 9s ease-in-out infinite alternate; }',
+		'#dsh-aether-stage .aether-css.paper { background: #f6f2e9; background-image: radial-gradient(#00000008 1px, transparent 1px); background-size: 5px 5px; }',
+		'@keyframes aether-drift { from { transform: scale(1.06) translate3d(-1.5%, -1%, 0); } to { transform: scale(1.12) translate3d(1.5%, 1.5%, 0); } }',
+		'@keyframes aether-tide { from { transform: scale(1.08) translate3d(0, 1.2%, 0); } to { transform: scale(1.14) translate3d(0, -1.2%, 0); } }',
+		'@keyframes aether-twinkle { from { opacity: .82; transform: scale(1.04); } to { opacity: 1; transform: scale(1.1); } }',
+		// 像素风（9-slice 边框 + CRT）
+		'html[data-dsh-aether-pixel] [role="dialog"],',
+		'html[data-dsh-aether-pixel] [data-rightbar-col],',
+		'html[data-dsh-aether-pixel] [data-global-panel] {',
+		'  border-style: solid;',
+		'  border-image-source: var(--aether-pixel-frame);',
+		'  border-image-slice: 3 fill;',
+		'  border-image-width: var(--aether-pixel-slice, 12px);',
+		'  border-image-repeat: stretch;',
+		'}',
+		'html[data-dsh-aether-pixel] body { image-rendering: pixelated; }',
+		'html[data-dsh-aether] code { color: var(--aether-code-fg); }',
+		'html[data-dsh-aether] textarea { border-color: var(--aether-input-border, var(--aether-border-l2)) !important; }',
+		'#dsh-aether-scan { position:fixed; inset:0; z-index:2147483000; pointer-events:none; background: repeating-linear-gradient(180deg, rgba(0,0,0,var(--aether-scanline, .08)) 0px, rgba(0,0,0,var(--aether-scanline, .08)) 1px, transparent 1px, transparent 3px); mix-blend-mode: multiply; }',
+		// 插件自己的面板/设置页样式（前缀 .aeth-，与宿主隔离）
+		'.aeth-root { padding: 16px 18px 24px; max-width: 980px; margin: 0 auto; color: var(--dsw-alias-label-primary, #e8eaed); }',
+		'.aeth-head { display:flex; gap:10px; align-items:baseline; margin-bottom: 12px; flex-wrap: wrap; }',
+		'.aeth-title { font-size: 16px; font-weight: 600; }',
+		'.aeth-sub { color: var(--dsw-alias-label-caption, #8b95a3); font-size: 12px; }',
+		'.aeth-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }',
+		'.aeth-tab { padding:5px 12px; border-radius:999px; border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.12)); background:transparent; color:var(--dsw-alias-label-secondary,#b6bec9); cursor:pointer; font-size:12px; }',
+		'.aeth-tab.on { color: var(--dsw-alias-label-primary,#fff); border-color: var(--aether-accent,#7aa2ff); background: color-mix(in srgb, var(--aether-accent,#7aa2ff) 16%, transparent); }',
+		'.aeth-card { border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.1)); border-radius:14px; padding:14px 16px; margin-bottom:12px; background: var(--dsw-alias-bg-layer-1, rgba(255,255,255,.03)); }',
+		'.aeth-card h3 { margin:0 0 10px; font-size:13px; font-weight:600; }',
+		'.aeth-row { display:flex; align-items:center; gap:10px; margin:8px 0; flex-wrap:wrap; }',
+		'.aeth-row > label { min-width:150px; font-size:12px; color: var(--dsw-alias-label-secondary,#b6bec9); }',
+		'.aeth-row .aeth-grow { flex:1 1 220px; min-width:180px; }',
+		'.aeth-input, .aeth-select, .aeth-range { background: var(--dsw-specific-input-major, rgba(255,255,255,.06)); color: inherit; border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.14)); border-radius:8px; padding:6px 9px; font-size:12px; }',
+		'.aeth-input:focus, .aeth-select:focus { outline:2px solid var(--aether-accent,#7aa2ff); outline-offset:1px; }',
+		'.aeth-range { padding:0; accent-color: var(--aether-accent,#7aa2ff); }',
+		'.aeth-btn { padding:6px 12px; border-radius:8px; border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.14)); background: var(--dsw-alias-bg-layer-2, rgba(255,255,255,.06)); color: inherit; cursor:pointer; font-size:12px; }',
+		'.aeth-btn:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,.1)); }',
+		'.aeth-btn.primary { background: var(--aether-accent,#7aa2ff); border-color: transparent; color:#0b0f16; font-weight:600; }',
+		'.aeth-btn.danger { color: var(--dsw-alias-state-error-primary,#e06c75); border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary,#e06c75) 40%, transparent); }',
+		'.aeth-chips { display:flex; gap:6px; flex-wrap:wrap; }',
+		'.aeth-chip { padding:4px 10px; border-radius:999px; border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.12)); background:transparent; color:var(--dsw-alias-label-secondary,#b6bec9); cursor:pointer; font-size:12px; }',
+		'.aeth-chip.on { color:#0b0f16; background: var(--aether-accent,#7aa2ff); border-color:transparent; }',
+		'.aeth-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap:10px; }',
+		'.aeth-wall { position:relative; border-radius:10px; overflow:hidden; border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.12)); aspect-ratio: 16/10; background:#0b0d12; cursor:pointer; }',
+		'.aeth-wall img, .aeth-wall video { width:100%; height:100%; object-fit:cover; display:block; }',
+		'.aeth-wall .aeth-badge { position:absolute; left:6px; bottom:6px; font-size:10px; padding:2px 7px; border-radius:999px; background:rgba(0,0,0,.6); color:#fff; }',
+		'.aeth-wall .aeth-x { position:absolute; right:4px; top:4px; width:20px; height:20px; border-radius:50%; border:none; background:rgba(0,0,0,.55); color:#fff; cursor:pointer; line-height:20px; font-size:12px; }',
+		'.aeth-wall.on { outline:2px solid var(--aether-accent,#7aa2ff); }',
+		'.aeth-note { font-size:11px; color: var(--dsw-alias-label-caption,#8b95a3); line-height:1.6; }',
+		'.aeth-kv { display:grid; grid-template-columns: 130px 1fr; gap:4px 10px; font-size:12px; }',
+		'.aeth-kv b { font-weight:500; color: var(--dsw-alias-label-caption,#8b95a3); }',
+		'.aeth-kv span { word-break:break-all; }',
+		'.aeth-ok { color: var(--dsw-alias-state-success-primary,#4ed6a0); }',
+		'.aeth-bad { color: var(--dsw-alias-state-error-primary,#e06c75); }',
+		'.aeth-swatches { display:flex; gap:8px; align-items:center; }',
+		'.aeth-swatch { width:26px; height:26px; border-radius:8px; border:1px solid rgba(255,255,255,.18); }',
+		'.aeth-section-title { font-size:13px; font-weight:600; margin: 18px 0 8px; }',
+		// 桌宠 / 挂件 / 开屏（固定定位，全部 pointer-events 可控）
+		'.aeth-pet { position:fixed; z-index:2147482000; cursor:pointer; user-select:none; transition: transform .2s ease; filter: drop-shadow(0 8px 18px rgba(0,0,0,.35)); }',
+		'.aeth-pet:active { transform: scale(.94); }',
+		'.aeth-pet .eye { transition: transform .12s ease-out; }',
+		'.aeth-widget { position:fixed; z-index:2147482000; display:flex; gap:10px; align-items:center; padding:8px 12px; border-radius:14px; border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.14)); background: var(--dsw-specific-menu, rgba(24,26,32,.86)); backdrop-filter: blur(14px) saturate(1.2); color: var(--dsw-alias-label-primary,#e8eaed); font-size:12px; box-shadow: 0 10px 28px rgba(0,0,0,.28); }',
+		'.aeth-widget b { font-size:14px; font-weight:600; }',
+		'.aeth-widget .aeth-warn { color: var(--dsw-alias-state-warn-primary,#f5a623); }',
+		'.aeth-boot { position:fixed; inset:0; z-index:2147483001; display:grid; place-items:center; background:#07090f; animation: aether-boot-out var(--aether-boot-dur, 2200ms) cubic-bezier(.4,0,.2,1) forwards; }',
+		'.aeth-boot .aeth-boot-mark { width:86px; height:86px; border-radius:50%; border:3px solid transparent; border-top-color:#7aa2ff; border-right-color:#9d7cff; animation: aether-spin 1.1s linear infinite; }',
+		'.aeth-boot .aeth-boot-text { margin-top:16px; font-size:12px; letter-spacing:.28em; color:#aab6d6; }',
+		'@keyframes aether-spin { to { transform: rotate(360deg); } }',
+		'@keyframes aether-boot-out { 0% { opacity:1 } 62% { opacity:1 } 100% { opacity:0; visibility:hidden } }',
+		'.aeth-diag-overlay { position:fixed; right:14px; top:14px; z-index:2147482500; width:290px; border-radius:12px; border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.16)); background: var(--dsw-specific-menu, rgba(18,20,26,.94)); color: var(--dsw-alias-label-primary,#e8eaed); font-size:11px; padding:10px 12px; box-shadow: 0 14px 34px rgba(0,0,0,.4); }',
+		'.aeth-diag-overlay .aeth-diag-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-weight:600; }',
+		'@media (prefers-reduced-motion: reduce) {',
+		'  #dsh-aether-stage > .aether-wall { transition-duration: 0ms; }',
+		'  #dsh-aether-stage .aether-css { animation: none !important; }',
+		'  .aeth-boot .aeth-boot-mark { animation: none; border-color:#7aa2ff; }',
+		'  .aeth-boot { animation-duration: 260ms; }',
+		'}',
+	].join('\n');
+}
+
+function ensureStyle() {
+	if (A.styleEl && document.head.contains(A.styleEl)) return A.styleEl;
+	var style = document.createElement('style');
+	style.id = 'dsh-aether-style';
+	style.textContent = buildStyleText();
+	document.head.appendChild(style);
+	A.styleEl = style;
+	return style;
+}
+
+function removeStyle() {
+	if (A.styleEl) {
+		try { A.styleEl.remove(); } catch (error) { /* ignore */ }
+		A.styleEl = null;
+	}
+}
+
+function setVar(name, value) {
+	try {
+		document.documentElement.style.setProperty(name, value);
+	} catch (error) { /* ignore */ }
+}
+
+function clearVar(name) {
+	try {
+		document.documentElement.style.removeProperty(name);
+	} catch (error) { /* ignore */ }
+}
+
+// ── 金丝雀：先健康过一轮才武装 ──────────────────────────────────────────
+// 每秒 reconcile 一次，连续 N 次（默认 40 ≈ 10 秒）关键锚点全丢，就判定宿主
+// DOM 契约已不在：撤掉自己注入的 CSS 与 DOM，交还官方原生布局，绝不硬撑。
+function canaryAnchors() {
+	var anchors = {
+		root: Boolean(document.getElementById('root')),
+		body: Boolean(document.body),
+		platform: Boolean(document.querySelector('html[data-platform]')),
+	};
+	return anchors;
+}
+
+function canaryTick() {
+	if (A.canary.disabled) return;
+	var anchors = canaryAnchors();
+	var lost = {
+		root: !anchors.root,
+		body: !anchors.body,
+		platform: !anchors.platform,
+	};
+	A.canary.lost = lost;
+	var allLost = !anchors.root && !anchors.body && !anchors.platform;
+	if (allLost) {
+		A.canary.strikes += 1;
+	} else {
+		A.canary.strikes = 0;
+	}
+	var limit = A.cfg && A.cfg.diag ? (A.cfg.diag.canaryStrikes || 40) : 40;
+	if (A.canary.strikes >= limit) safeExit();
+	if (A.canary.strikes > 0) pushLog('warn', '金丝雀计数', { strikes: A.canary.strikes, lost: lost });
+}
+
+function safeExit() {
+	if (A.canary.disabled) return;
+	A.canary.disabled = true;
+	pushLog('error', '宿主 DOM 契约漂移：撤离注入，交还原生布局', { strikes: A.canary.strikes });
+	try { removeStyle(); } catch (error) { /* ignore */ }
+	try { removeStage(); } catch (error) { /* ignore */ }
+	try {
+		document.documentElement.removeAttribute('data-dsh-aether');
+		document.documentElement.removeAttribute('data-dsh-aether-pixel');
+	} catch (error) { /* ignore */ }
+	notify();
+	if (A.canary.timer) {
+		try { clearInterval(A.canary.timer); } catch (error) { /* ignore */ }
+		A.canary.timer = null;
+	}
+	reportDiag('safe-exit');
+}
+
+function startCanary() {
+	if (A.canary.timer) return;
+	A.canary.timer = setInterval(canaryTick, 1000);
+	if (A.canary.timer && typeof A.canary.timer.unref === 'function') A.canary.timer.unref();
+}
+
+// ── 诊断上报 ─────────────────────────────────────────────────────────────
+function collectDiag() {
+	var anchors = canaryAnchors();
+	var tokens = {};
+	try {
+		var style = window.getComputedStyle(document.body);
+		['--dsw-alias-bg-base', '--dsw-alias-label-primary', '--dsw-specific-sidebar-fill', '--aether-accent'].forEach(function (name) {
+			tokens[name] = style.getPropertyValue(name).trim();
+		});
+	} catch (error) { /* ignore */ }
+	return {
+		version: VERSION,
+		at: Date.now(),
+		uptimeMs: Date.now() - A.startedAt,
+		theme: { dark: isDarkTheme(), reduceMotion: shouldReduceMotion(), platform: (document.documentElement.getAttribute('data-platform') || '') },
+		anchors: anchors,
+		strikes: A.canary.strikes,
+		config: A.cfg ? { mode: A.cfg.wallpaper && A.cfg.wallpaper.mode, modules: A.cfg.modules } : null,
+		tokens: tokens,
+		host: { ok: A.host.ok, version: A.host.version },
+		errors: A.logs.filter(function (entry) { return entry.level === 'error' || entry.level === 'warn'; }).slice(-10),
+	};
+}
+
+function reportDiag(reason) {
+	var payload = collectDiag();
+	payload.reason = reason || 'periodic';
+	A.lastDiag = payload;
+	notify();
+	try {
+		apiFetch('/api/diag', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(payload),
+		}).catch(function () { /* Host 不在线就算了，面板里仍能看到本地诊断 */ });
+	} catch (error) { /* ignore */ }
+	return payload;
+}
+
+// ── 订阅（面板/挂件及时刷新） ────────────────────────────────────────────
+function subscribe(fn) {
+	A.subscribers.push(fn);
+	return function () {
+		var index = A.subscribers.indexOf(fn);
+		if (index !== -1) A.subscribers.splice(index, 1);
+	};
+}
+
+function notify() {
+	A.subscribers.slice().forEach(function (fn) {
+		try { fn(); } catch (error) { /* 单个订阅者出错不影响其他 */ }
+	});
+}
+
+function moduleOn(name) {
+	try {
+		return Boolean(A.cfg && A.cfg.enabled !== false && A.cfg.modules && A.cfg.modules[name] && A.cfg.modules[name].enabled);
+	} catch (error) {
+		return false;
+	}
+}
