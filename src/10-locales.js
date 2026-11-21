@@ -6,6 +6,7 @@ var I18N = {
 	zh: {
 		'panel.title': '以太主题',
 		'panel.subtitle': '背景 · 毛玻璃 · 对比度兜底',
+		'section.appearance': '外观',
 		'section.theme': '主题',
 		'section.wallpaper': '壁纸',
 		'section.glass': '玻璃',
