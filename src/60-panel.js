@@ -189,13 +189,13 @@ function AetherPanel() {
 	}
 
 	if (!cfg) {
-		return h('div', { className: 'aeth-root' },
+		return h('div', { className: 'aeth-root', 'data-aeth-surface': 'panel' },
 			h('div', { className: 'aeth-head' }, h('div', { className: 'aeth-title' }, t('panel.title'))),
 			h('div', { className: 'aeth-card' }, hostOk ? t('state.loading') : t('state.hostDown')),
 		);
 	}
 
-	return h('div', { className: 'aeth-root' },
+	return h('div', { className: 'aeth-root', 'data-aeth-surface': 'panel' },
 		h('div', { className: 'aeth-head' },
 			h('div', { className: 'aeth-title' }, t('panel.title')),
 			h('div', { className: 'aeth-sub' }, t('panel.subtitle') + ' · v' + VERSION + (A.canary.disabled ? ' · ' + t('safe.mode') : '')),
@@ -286,6 +286,91 @@ function AppearanceTab(cfg, mutate) {
 			], theme.reducedMotion, function (value) {
 				mutate(function (draft) { draft.theme.reducedMotion = value; }, { wallpaper: false });
 			}),
+		),
+		AdvancedCards(cfg, mutate),
+	);
+}
+
+var FONT_CHOICES = [
+	{ value: '', label: '官方默认' },
+	{ value: 'Microsoft YaHei', label: '微软雅黑' },
+	{ value: 'PingFang SC', label: '苹方' },
+	{ value: 'Noto Sans SC', label: '思源黑体' },
+	{ value: 'Source Han Sans SC', label: 'Source Han Sans' },
+	{ value: 'Segoe UI', label: 'Segoe UI' },
+	{ value: 'SimSun', label: '宋体' },
+	{ value: 'KaiTi', label: '楷体' },
+];
+
+function AdvancedCards(cfg, mutate) {
+	var theme = cfg.theme;
+	var bubble = cfg.bubble || { official: true, color: '#dbe7ff', opacity: 0.62 };
+	var panel = cfg.panel || { scale: 1.15 };
+	var meteor = cfg.meteor || { enabled: false, density: 1, hue: 222 };
+	var userMd = cfg.userMd || { enabled: true };
+	return h('div', null,
+		h('div', { className: 'aeth-card' },
+			h('h3', null, '字体与字号'),
+			selectRow('字体', FONT_CHOICES, theme.fontFamily || '', function (value) {
+				mutate(function (draft) { draft.theme.fontFamily = value; }, { wallpaper: false });
+			}),
+			sliderRow('字号', theme.fontSize || 0, 0, 24, 1, function (value) {
+				mutate(function (draft) { draft.theme.fontSize = value === 0 ? 0 : value; }, { wallpaper: false });
+			}, theme.fontSize ? 'px' : '（官方）'),
+			row('加粗颜色', h('input', {
+				type: 'color',
+				value: theme.strongColor || '#ffe6a3',
+				onChange: function (event) { mutate(function (draft) { draft.theme.strongColor = event.target.value; }, { wallpaper: false }); },
+				style: { width: '40px', height: '28px', border: 'none', background: 'transparent' },
+			})),
+			h('div', { className: 'aeth-chips', style: { marginLeft: '160px' } },
+				['#ffe6a3', '#ffd76e', '#fff2b8', '#ffcf5c'].map(function (color) {
+					return h('button', {
+						key: color,
+						className: 'aeth-chip' + ((theme.strongColor || '').toLowerCase() === color ? ' on' : ''),
+						onClick: function () { mutate(function (draft) { draft.theme.strongColor = color; }, { wallpaper: false }); },
+						style: { background: color, color: '#0b0f16', borderColor: 'transparent' },
+					}, color);
+				}),
+			),
+			h('div', { className: 'aeth-note' }, '作用于模型输出的 **加粗重点**（host 的 strong/b）。'),
+		),
+		h('div', { className: 'aeth-card' },
+			h('h3', null, '用户气泡'),
+			toggleRow('使用官方气泡样式', bubble.official !== false, function (value) {
+				mutate(function (draft) { draft.bubble = Object.assign({}, draft.bubble || {}, { official: value }); }, { wallpaper: false });
+			}),
+			bubble.official === false
+				? h('div', null,
+					row('气泡颜色', h('input', {
+						type: 'color',
+						value: bubble.color || '#dbe7ff',
+						onChange: function (event) { mutate(function (draft) { draft.bubble = Object.assign({}, draft.bubble || {}, { color: event.target.value }); }, { wallpaper: false }); },
+						style: { width: '40px', height: '28px', border: 'none', background: 'transparent' },
+					})),
+					sliderRow('不透明度', bubble.opacity === undefined ? 0.62 : bubble.opacity, 0.1, 1, 0.02, function (value) {
+						mutate(function (draft) { draft.bubble = Object.assign({}, draft.bubble || {}, { opacity: value }); }, { wallpaper: false });
+					}),
+				)
+				: h('div', { className: 'aeth-note' }, '当前跟随宿主原生气泡色。'),
+		),
+		h('div', { className: 'aeth-card' },
+			h('h3', null, '交互效果'),
+			toggleRow('用户消息 Markdown 自动渲染', userMd.enabled !== false, function (value) {
+				mutate(function (draft) { draft.userMd = Object.assign({}, draft.userMd || {}, { enabled: value }); }, { wallpaper: false });
+				setTimeout(function () { try { scanUserMarkdown(); } catch (error) { /* ignore */ } }, 80);
+			}),
+			toggleRow('鼠标流星尾缀', Boolean(meteor.enabled), function (value) {
+				mutate(function (draft) { draft.meteor = Object.assign({}, draft.meteor || {}, { enabled: value }); }, { wallpaper: false });
+			}),
+			meteor.enabled
+				? sliderRow('流星密度', meteor.density || 1, 0.2, 3, 0.1, function (value) {
+					mutate(function (draft) { draft.meteor = Object.assign({}, draft.meteor || {}, { density: value }); }, { wallpaper: false });
+				})
+				: null,
+			sliderRow('面板内容缩放', panel.scale || 1.15, 0.8, 1.6, 0.05, function (value) {
+				mutate(function (draft) { draft.panel = Object.assign({}, draft.panel || {}, { scale: value }); }, { wallpaper: false });
+			}, '×'),
 		),
 	);
 }
@@ -460,6 +545,7 @@ function GlassTab(cfg, mutate) {
 				{ value: 'tinted', label: t('input.tinted') },
 				{ value: 'bordered', label: t('input.bordered') },
 				{ value: 'accent', label: t('input.accent') },
+				{ value: 'wenxin', label: '文心渐变边框' },
 			], glass.inputFill, function (value) {
 				mutate(function (draft) { draft.glass.inputFill = value; }, { wallpaper: false });
 			}),
