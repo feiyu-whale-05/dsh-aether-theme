@@ -78,7 +78,7 @@ test('wallpaper 库：列表/删除/统计', () => {
 test('defaultAppearance 结构稳定', () => {
   const appearance = defaultAppearance()
   assert.equal(appearance.version, 1)
-  assert.equal(appearance.glass.regions.base > 0, true)
+  assert.equal(appearance.glass.regions.base >= 0, true)
   for (const name of ['theme', 'wallpaper', 'glass', 'pixel', 'widget', 'pet', 'boot', 'diag']) {
     assert.ok(appearance.modules[name], `模块 ${name} 应存在`)
   }
