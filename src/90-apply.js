@@ -131,7 +131,7 @@ function subscribeSlots(ctx) {
 		}, AetherNavIcon);
 	}, 'settings.section.icon');
 	registerSlot(ctx, 'shell.overlay', function () {
-		return ctx.slots.register({ name: 'shell.overlay', key: PANEL_ID }, AetherOverlayHost);
+		return ctx.slots.register({ name: 'shell.overlay', id: PANEL_ID, order: 5 }, AetherOverlayHost);
 	}, 'shell.overlay');
 }
 
