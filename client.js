@@ -294,7 +294,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.0';
+		var VERSION = '1.0.1';
 
 		var A = {
 			ctx: null,
@@ -499,6 +499,36 @@ window.__ModuleLoader__.load({
 			if (contrastRatio(bgColor, ink) >= 3) return labelHex;
 			var decision = solveForeground(bgColor, 4.5, luminance(asColor(bgColor)) < 0.5 ? undefined : 'dark');
 			return toHex(decision.color);
+		}
+
+		/**
+		 * 可读强调色：把主色按目标对比度校准到指定底色上。
+		 * 壁纸取色可能给出很暗/很亮的主色，直接用会在侧栏选中行、光标、图标上「消失」。
+		 */
+		function readableOn(accentInput, bgInput, target) {
+			var accent = asColor(accentInput);
+			var bg = asColor(bgInput);
+			var wanted = target || 4.5;
+			if (contrastRatio(bg, accent) >= wanted) return toHex(accent);
+			var toward = luminance(bg) < 0.5 ? { r: 255, g: 255, b: 255, a: 1 } : { r: 0, g: 0, b: 0, a: 1 };
+			var best = accent;
+			for (var i = 1; i <= 20; i += 1) {
+				var candidate = mixColor(accent, toward, i / 20);
+				if (contrastRatio(bg, candidate) >= wanted) return toHex(candidate);
+				best = candidate;
+			}
+			return toHex(best);
+		}
+
+		/** 强调底上的文字色：浅底给深字、深底给白字，保证 ≥ 4.5:1。 */
+		function inkOn(accentInput, target) {
+			var accent = asColor(accentInput);
+			var wanted = target || 4.5;
+			var black = { r: 11, g: 15, b: 22, a: 1 };
+			var white = { r: 255, g: 255, b: 255, a: 1 };
+			if (contrastRatio(accent, black) >= wanted) return toHex(black);
+			if (contrastRatio(accent, white) >= wanted) return toHex(white);
+			return toHex(solveForeground(accent, wanted).color);
 		}
 
 		/** 从壁纸采样平均亮度 + 主色（缩小到 48x48 后按 4bit/通道取众数桶）。 */
@@ -822,8 +852,14 @@ window.__ModuleLoader__.load({
 				'  --dsw-alias-brand-primary: var(--aether-accent) !important;',
 				'  --dsw-alias-button-primary-fill: var(--aether-accent) !important;',
 				'  --dsw-alias-button-primary-hover: var(--aether-accent-strong) !important;',
-				'  --dsw-alias-link: var(--aether-accent) !important;',
-				'  --dsw-alias-state-business-primary: var(--aether-accent) !important;',
+				'  --dsw-alias-link: var(--aether-accent-readable) !important;',
+				'  --dsw-alias-label-primary-foreground: var(--aether-accent-ink) !important;',
+				'  --dsw-alias-label-on-color: var(--aether-accent-ink) !important;',
+				'  --dsw-alias-button-primary-hover: var(--aether-accent-readable) !important;',
+				'  --dsw-specific-sidebar-nav-item-active-accent: var(--aether-accent-readable) !important;',
+				'  --dsw-focus-ring-color: var(--aether-accent-readable) !important;',
+				'  --dsw-alias-state-business-primary: var(--aether-accent-readable) !important;',
+				'  --dsw-alias-state-business-secondary: var(--aether-accent-readable) !important;',
 				'}',
 				// 浅色分支兜底：变量缺失时也不出现「白底白字」
 				'html[data-dsh-aether] body:not([data-ds-dark-theme]) {',
@@ -869,6 +905,7 @@ window.__ModuleLoader__.load({
 				'html[data-dsh-aether-pixel] body { image-rendering: pixelated; }',
 				'html[data-dsh-aether] code { color: var(--aether-code-fg); }',
 				'html[data-dsh-aether] textarea { border-color: var(--aether-input-border, var(--aether-border-l2)) !important; }',
+				'html[data-dsh-aether] input, html[data-dsh-aether] textarea, html[data-dsh-aether] [contenteditable="true"], html[data-dsh-aether] [data-composer-input] { caret-color: var(--aether-caret) !important; }',
 				'#dsh-aether-scan { position:fixed; inset:0; z-index:2147483000; pointer-events:none; background: repeating-linear-gradient(180deg, rgba(0,0,0,var(--aether-scanline, .08)) 0px, rgba(0,0,0,var(--aether-scanline, .08)) 1px, transparent 1px, transparent 3px); mix-blend-mode: multiply; }',
 				// 插件自己的面板/设置页样式（前缀 .aeth-，与宿主隔离）
 				'.aeth-root { padding: 16px 18px 24px; max-width: 980px; margin: 0 auto; color: var(--dsw-alias-label-primary, #e8eaed); }',
@@ -1203,6 +1240,13 @@ window.__ModuleLoader__.load({
 			return null;
 		}
 
+		/** 输入框的「有效底色」：半透明输入框叠在壁纸上，用于光标/文字可读性反解。 */
+		function inputEffectiveColor(panel, wallpaperColor, alpha) {
+			var fill = A.cfg && A.cfg.glass ? A.cfg.glass.inputFill : 'frosted';
+			var localAlpha = fill === 'transparent' || fill === 'bordered' ? 0.06 : Math.max(clamp(alpha, 0, 1), 0.5);
+			return composite({ r: panel.r, g: panel.g, b: panel.b, a: localAlpha }, wallpaperColor);
+		}
+
 		/** 输入框 6 种填充模式 → 实际底色/边框。 */
 		function inputFillColor(mode, panel, accent, ink) {
 			var opacity = A.cfg && A.cfg.glass ? clamp(A.cfg.glass.inputFillOpacity, 0, 1) : 0.6;
@@ -1330,8 +1374,17 @@ window.__ModuleLoader__.load({
 
 			var input = inputFillColor(glass.inputFill || 'frosted', panel, accentHex, ink);
 
+			// 可读强调色：按钮底 / 链接 / 状态点 / 侧栏选中图标 / 光标 都用校准后的版本
+			var sidebarSurface = composite({ r: panel.r, g: panel.g, b: panel.b, a: alphaSidebar }, wallpaperAvg);
+			var accentReadable = readableOn(accentHex, sidebarSurface, 4.5);
+			var accentInk = inkOn(accentHex, 4.5);
+			var caretColor = readableOn(accentHex, inputEffectiveColor(panel, wallpaperAvg, alphaInput), 4.5);
+
 			var vars = {
 				'--aether-accent': palette.accent,
+				'--aether-accent-readable': accentReadable,
+				'--aether-accent-ink': accentInk,
+				'--aether-caret': caretColor,
 				'--aether-accent-soft': palette.accentSoft,
 				'--aether-accent-strong': palette.accentStrong,
 				'--aether-secondary': secondary,
@@ -1381,6 +1434,9 @@ window.__ModuleLoader__.load({
 					setVar('--aether-accent', pixelPalette.accent);
 					setVar('--aether-accent-soft', pixelPalette.inkSoft);
 					setVar('--aether-accent-strong', pixelPalette.accent);
+					setVar('--aether-accent-readable', pixelPalette.accent);
+					setVar('--aether-accent-ink', inkOn(pixelPalette.accent, 4.5));
+					setVar('--aether-caret', pixelPalette.ink);
 					setVar('--aether-label-primary', pixelPalette.ink);
 					setVar('--aether-label-secondary', pixelPalette.inkSoft);
 					setVar('--aether-label-tertiary', pixelPalette.inkSoft);
