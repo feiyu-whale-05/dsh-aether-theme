@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.4';
+var VERSION = '1.0.5';
 
 var A = {
 	ctx: null,
@@ -438,7 +438,17 @@ function mergeConfig(saved, defaults) {
 		if (value && typeof value === 'object' && !Array.isArray(value) && out[key] && typeof out[key] === 'object' && !Array.isArray(out[key])) {
 			out[key] = Object.assign({}, out[key], value);
 			// modules/regions 这类两级对象再合并一次，防止旧配置缺字段
-			Object.keys(out[key]).forEach(function (sub) {
+			// 旧配置迁移：inputFill 单值 → inputFills 数组
+		if (key === 'glass') {
+			if (out[key].inputFill) {
+				var legacyFill = out[key].inputFill;
+				if (!Array.isArray(out[key].inputFills) || !out[key].inputFills.length) out[key].inputFills = [legacyFill];
+				delete out[key].inputFill;
+			}
+			if (typeof out[key].inputFills === 'string') out[key].inputFills = [out[key].inputFills];
+			if (!Array.isArray(out[key].inputFills)) out[key].inputFills = ['frosted'];
+		}
+		Object.keys(out[key]).forEach(function (sub) {
 				if (value[sub] && typeof value[sub] === 'object' && out[key][sub] && typeof out[key][sub] === 'object') {
 					out[key][sub] = Object.assign({}, out[key][sub], value[sub]);
 				}
@@ -474,9 +484,9 @@ function defaultConfigFallback() {
 			rotation: { enabled: false, intervalMin: 30, timeOfDay: [6, 18], categories: [] },
 		},
 		glass: {
-			glassBlur: 18, backgroundBlur: 8, saturation: 1.15, border: 0.14,
+			glassBlur: 18, backgroundBlur: 0, saturation: 1.15, border: 0.14,
 			regions: { base: 0.52, sidebar: 0.44, layers: 0.5, menu: 0.74, input: 0.58, bubble: 0.5 },
-			inputFill: 'frosted', inputFillOpacity: 0.6,
+			inputFills: ['frosted'], inputFillOpacity: 0.6,
 		},
 		pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
 		widget: { position: 'bottom-right', showBalance: true, showToday: true, showTurn: true, warnBelow: 5 },
