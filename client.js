@@ -28,6 +28,7 @@ window.__ModuleLoader__.load({
 			zh: {
 				'panel.title': '以太主题',
 				'panel.subtitle': '背景 · 毛玻璃 · 对比度兜底',
+				'section.appearance': '外观',
 				'section.theme': '主题',
 				'section.wallpaper': '壁纸',
 				'section.glass': '玻璃',
@@ -294,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.3';
+		var VERSION = '1.0.4';
 
 		var A = {
 			ctx: null,
@@ -674,8 +675,34 @@ window.__ModuleLoader__.load({
 			});
 		}
 
+		/** token 缺失（页面 index 被缓存/插件热加载）时，向同源 bootstrap 端点换取。 */
+		function ensureToken() {
+			var current = readToken();
+			if (current) { A.token = current; return Promise.resolve(current); }
+			if (A.token) return Promise.resolve(A.token);
+			return fetch(A.apiBase + '/api/bootstrap', { credentials: 'same-origin' })
+				.then(function (response) {
+					if (!response.ok) throw new Error('bootstrap HTTP ' + response.status);
+					return response.json();
+				})
+				.then(function (payload) {
+					if (payload && payload.token) {
+						A.token = String(payload.token);
+						pushLog('info', '页面令牌已自举');
+						return A.token;
+					}
+					throw new Error('no token in bootstrap');
+				})
+				.catch(function (error) {
+					pushLog('warn', 'token 自举失败', { message: String(error && error.message) });
+					return '';
+				});
+		}
+
 		function loadState() {
-			return apiFetch('/api/state').then(function (payload) {
+			return ensureToken().then(function () {
+				return apiFetch('/api/state');
+			}).then(function (payload) {
 				A.host.ok = true;
 				A.host.version = payload.version || VERSION;
 				A.host.wallpapers = Array.isArray(payload.wallpapers) ? payload.wallpapers : [];
@@ -2848,7 +2875,7 @@ window.__ModuleLoader__.load({
 						h('b', null, t('label.version')), h('span', null, VERSION),
 						h('b', null, t('label.anchors')), h('span', { className: ok ? 'aeth-ok' : 'aeth-bad' }, ok ? t('diag.canaryOk') : t('diag.canaryLost')),
 						h('b', null, t('label.strikes')), h('span', null, String(A.canary.strikes)),
-						h('b', null, 'Host'), h('span', { className: A.host.ok ? 'aeth-ok' : 'aeth-bad' }, A.host.ok ? 'ok · v' + A.host.version : t('state.hostDown')),
+						h('b', null, 'Host'), h('span', { className: A.host.ok ? 'aeth-ok' : 'aeth-bad' }, A.host.ok ? 'ok · v' + A.host.version : t('state.hostDown') + (A.host.error ? '（' + A.host.error + '）' : '')),
 						h('b', null, 'dark'), h('span', null, String(isDarkTheme())),
 						h('b', null, 'reduced-motion'), h('span', null, String(shouldReduceMotion())),
 						h('b', null, '#root'), h('span', null, String(anchors.root)),
@@ -2857,7 +2884,7 @@ window.__ModuleLoader__.load({
 					h('div', { className: 'aeth-row', style: { marginTop: '10px' } },
 						h('button', { className: 'aeth-btn primary', onClick: exportDiag }, '导出 diag.json'),
 						h('button', { className: 'aeth-btn', onClick: function () { reportDiag('panel'); } }, '刷新诊断'),
-						toggleRow(t('label.diag') + ' 浮层', A.cfg.diag.showOverlay, function (value) {
+						toggleRow(t('section.diag') + ' 浮层', A.cfg.diag.showOverlay, function (value) {
 							A.cfg.diag.showOverlay = value;
 							applyAppearance('diag');
 							saveConfig('diag').catch(function () { /* ignore */ });
@@ -2870,8 +2897,9 @@ window.__ModuleLoader__.load({
 						style: { maxHeight: '180px', overflow: 'auto', fontFamily: 'var(--dsw-font-mono, monospace)', fontSize: '11px', lineHeight: '1.6' },
 					},
 						(A.logs || []).slice(-40).map(function (entry, index) {
+							var detail = entry.meta && (entry.meta.message || entry.meta.slot) ? ' — ' + (entry.meta.slot ? '[' + entry.meta.slot + '] ' : '') + (entry.meta.message || '') : '';
 							return h('div', { key: index, className: entry.level === 'error' ? 'aeth-bad' : '' },
-								new Date(entry.t).toLocaleTimeString() + ' ' + entry.level + ' ' + entry.message,
+								new Date(entry.t).toLocaleTimeString() + ' ' + entry.level + ' ' + entry.message + detail,
 							);
 						}),
 					),
@@ -3347,19 +3375,27 @@ window.__ModuleLoader__.load({
 			} catch (error) { /* ignore */ }
 		}
 
+		function registerSlot(ctx, name, factory, label) {
+			try {
+				ctx.slots.inject(name, factory);
+			} catch (error) {
+				pushLog('error', '槽位注册失败：' + (label || name), { slot: name, message: String(error && error.message) });
+			}
+		}
+
 		function subscribeSlots(ctx) {
-			ctx.slots.inject('sidebar.panellist', function () {
+			registerSlot(ctx, 'sidebar.panellist', function () {
 				return ctx.slots.register({
 					name: 'sidebar.panellist',
 					id: PANEL_ID,
 					order: 26,
 					label: function () { return t('panel.title'); },
 				}, AetherRailIcon);
-			});
-			ctx.slots.inject('main', function () {
+			}, 'sidebar.panellist');
+			registerSlot(ctx, 'main', function () {
 				return ctx.slots.register({ name: 'main', key: PANEL_ID }, AetherPanel);
-			});
-			ctx.slots.inject('settings.section', function () {
+			}, 'main');
+			registerSlot(ctx, 'settings.section', function () {
 				return ctx.slots.register({
 					name: 'settings.section',
 					id: PANEL_ID,
@@ -3367,17 +3403,17 @@ window.__ModuleLoader__.load({
 					label: function () { return t('nav.settings'); },
 					locale: 'aether-theme',
 				}, AetherSettingsSection);
-			});
-			ctx.slots.inject('settings.section.icon', function () {
+			}, 'settings.section');
+			registerSlot(ctx, 'settings.section.icon', function () {
 				return ctx.slots.register({
 					name: 'settings.section.icon',
 					id: PANEL_ID,
 					order: 58,
 				}, AetherNavIcon);
-			});
-			ctx.slots.inject('shell.overlay', function () {
+			}, 'settings.section.icon');
+			registerSlot(ctx, 'shell.overlay', function () {
 				return ctx.slots.register({ name: 'shell.overlay', key: PANEL_ID }, AetherOverlayHost);
-			});
+			}, 'shell.overlay');
 		}
 
 		var apply = function apply(ctx) {
