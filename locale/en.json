@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Aether Theme",
+    "description": "A background + frosted-glass + contrast-fallback theme engine for the DSH desktop: zero layout intrusion, byte-level rollback, modular on-demand loading, WCAG dynamic resolution, smart color derivation, wallpaper rotation with time-of-day switching, JSON theme pack import/export, and an in-screen diagnostics panel."
+  }
+}
