@@ -321,7 +321,8 @@ function applyAppearance(reason) {
 		'--aether-bg-blur': clamp(glass.backgroundBlur === undefined ? 0 : glass.backgroundBlur, 0, 64) + 'px',
 		'--aether-saturation': String(clamp(glass.saturation === undefined ? 1.15 : glass.saturation, 0.2, 2.5)),
 		'--aether-transition': clamp(A.cfg.theme.transitionMs, 0, 2000) + 'ms',
-		'--aether-veil': 'rgba(0,0,0,' + clamp(A.cfg.wallpaper.dim === undefined ? 0.32 : A.cfg.wallpaper.dim, 0, 1) + ')',
+		'--aether-veil': 'rgba(0,0,0,' + clamp(A.cfg.wallpaper.dim === undefined ? 0 : A.cfg.wallpaper.dim, 0, 1) + ')',
+		'--aether-wall-brightness': String(clamp(A.cfg.wallpaper.brightness === undefined ? 0.85 : A.cfg.wallpaper.brightness, 0.3, 1.4)),
 		'--aether-scanline': String(clamp(A.cfg.pixel.scanline === undefined ? 0.08 : A.cfg.pixel.scanline, 0, 0.4)),
 	};
 	Object.keys(vars).forEach(function (name) { setVar(name, vars[name]); });
