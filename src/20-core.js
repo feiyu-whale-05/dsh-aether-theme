@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.3';
+var VERSION = '1.0.4';
 
 var A = {
 	ctx: null,
@@ -385,8 +385,34 @@ function apiFetch(path, options) {
 	});
 }
 
+/** token 缺失（页面 index 被缓存/插件热加载）时，向同源 bootstrap 端点换取。 */
+function ensureToken() {
+	var current = readToken();
+	if (current) { A.token = current; return Promise.resolve(current); }
+	if (A.token) return Promise.resolve(A.token);
+	return fetch(A.apiBase + '/api/bootstrap', { credentials: 'same-origin' })
+		.then(function (response) {
+			if (!response.ok) throw new Error('bootstrap HTTP ' + response.status);
+			return response.json();
+		})
+		.then(function (payload) {
+			if (payload && payload.token) {
+				A.token = String(payload.token);
+				pushLog('info', '页面令牌已自举');
+				return A.token;
+			}
+			throw new Error('no token in bootstrap');
+		})
+		.catch(function (error) {
+			pushLog('warn', 'token 自举失败', { message: String(error && error.message) });
+			return '';
+		});
+}
+
 function loadState() {
-	return apiFetch('/api/state').then(function (payload) {
+	return ensureToken().then(function () {
+		return apiFetch('/api/state');
+	}).then(function (payload) {
 		A.host.ok = true;
 		A.host.version = payload.version || VERSION;
 		A.host.wallpapers = Array.isArray(payload.wallpapers) ? payload.wallpapers : [];
