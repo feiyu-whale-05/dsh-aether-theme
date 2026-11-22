@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.41';
+var VERSION = '1.0.42';
 
 var A = {
 	ctx: null,
@@ -846,7 +846,8 @@ function buildStyleText() {
 		'  transition: box-shadow .16s ease, transform .16s ease;',
 		'}',
 'html[data-dsh-aether] [data-aether-pressed="1"] {',
-		'  box-shadow: inset 0 0 80px rgba(0, 0, 0, .26) !important;',
+		'  box-shadow: inset 0 0 90px rgba(0, 0, 0, .30) !important;',
+		'  background-color: color-mix(in srgb, var(--aether-chrome-fill, rgba(34,38,47,.5)) 88%, #000) !important;',
 		'  transition: box-shadow .18s ease;',
 		'}',
 		'#dsh-aether-critters svg { position:absolute; display:block; }',
