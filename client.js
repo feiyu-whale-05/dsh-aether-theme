@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.69';
+		var VERSION = '1.0.70';
 
 		var A = {
 			ctx: null,
@@ -1315,7 +1315,7 @@ window.__ModuleLoader__.load({
 				'.aeth-avatar { position:absolute; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:600; color:#eaf1ff; background:rgba(34,38,47,.85); border:1px solid rgba(255,255,255,.14); box-shadow:0 3px 10px rgba(0,0,0,.35); overflow:hidden; pointer-events:none; user-select:none; z-index:3; }',
 				'.aeth-avatar img { width:100%; height:100%; object-fit:cover; display:block; }',
 				'.aeth-avatar-user { right:-38px; top:0px; background:rgba(65,118,230,.9); }',
-				'.aeth-avatar-agent { left:-38px; top:-40px; }',
+				'.aeth-avatar-agent { left:-38px; top:-4px; }',
 				// 用户气泡左下角装饰
 				'.aeth-bubble-deco { position:absolute; left:0px; bottom:-2px; font-size:17px; line-height:1; pointer-events:none; z-index:10; filter: drop-shadow(0 2px 5px rgba(0,0,0,.45)); user-select:none; }',
 				'.aeth-bubble-deco img { width:24px; height:24px; object-fit:contain; display:block; border-radius:6px; }',
@@ -4973,6 +4973,28 @@ window.__ModuleLoader__.load({
 			} catch (error) { /* ignore */ }
 		}
 
+		var STATUS_TEXT = /(已完成|运行中|思考中|用时|\d+\s*秒|\d+分)/;
+
+		/** 在内容容器的祖先范围内找「已完成，用时…」那一行元素。 */
+		function findStatusLine(row) {
+			try {
+				var scope = row.parentElement;
+				for (var depth = 0; scope && depth < 4; depth += 1) {
+					var nodes = scope.querySelectorAll('span, div');
+					for (var i = 0; i < nodes.length; i += 1) {
+						var el = nodes[i];
+						if (el.querySelector('.aeth-avatar')) continue;
+						if (el.children.length > 2) continue;
+						var text = (el.textContent || '').trim();
+						if (!text || text.length > 40) continue;
+						if (STATUS_TEXT.test(text)) return el;
+					}
+					scope = scope.parentElement;
+				}
+			} catch (error) { /* ignore */ }
+			return null;
+		}
+
 		function scanAvatars() {
 			try {
 				if (!A.cfg || A.canary.disabled) return;
@@ -4981,7 +5003,14 @@ window.__ModuleLoader__.load({
 				document.querySelectorAll(AVATAR_AGENT_SELECTOR).forEach(function (row) {
 					// agent 头像只挂到「最外层」的内容容器，避免每个 markdown 块都来一个
 					if (row.parentElement && row.parentElement.closest(AVATAR_AGENT_SELECTOR)) return;
-					syncAvatar(row, 'agent', cfg);
+					// 优先对齐「已完成，用时…」那一行；找不到再退回内容容器
+					var status = findStatusLine(row);
+					syncAvatar(status || row, 'agent', cfg);
+					// 状态行命中后，把内容容器上的旧头像清掉，避免两个
+					if (status && status !== row) {
+						var stale = row.querySelector(':scope > .aeth-avatar');
+						if (stale) stale.remove();
+					}
 				});
 				if (!cfg) {
 					document.querySelectorAll('.aeth-avatar').forEach(function (node) {
