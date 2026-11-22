@@ -297,12 +297,20 @@ function applyAppearance(reason) {
 			var key = keys[i];
 			var item = regionBg[key];
 			var varName = '--aether-' + key + '-bg';
+			var imgName = '--aether-' + key + '-img';
 			if (item && item.enabled === true) {
 				var color = parseColor(item.color || '#22262f');
 				var alpha = clamp(item.opacity === undefined ? 0.5 : item.opacity, 0, 1);
 				setVar(varName, rgba(color, alpha));
 			} else {
 				clearVar(varName);
+			}
+			// 分区背景图：选了壁纸库里的图片就挂上，否则清掉
+			if (item && item.image) {
+				var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(item.image) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
+				setVar(imgName, 'url("' + url + '")');
+			} else {
+				clearVar(imgName);
 			}
 		}
 	})();
