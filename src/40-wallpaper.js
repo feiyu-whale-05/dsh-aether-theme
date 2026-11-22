@@ -244,7 +244,10 @@ function removeWallpaper(id) {
 				A.cfg.wallpaper.id = '';
 				applyWallpaper('deleted');
 			}
+			pushLog('info', '壁纸已删除', { id: id });
 			notify();
+		} else {
+			pushLog('warn', '壁纸删除失败', { id: id, error: payload && payload.error });
 		}
 		return payload;
 	});
