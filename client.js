@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.26';
+		var VERSION = '1.0.27';
 
 		var A = {
 			ctx: null,
@@ -2180,35 +2180,6 @@ window.__ModuleLoader__.load({
 			return String(n);
 		}
 
-		// ── 余额挂件：数据来自 Host 读取的本机用量文件 ──────────────────────────
-		function BalanceWidget() {
-			useAetherTick();
-			var openState = react.useState(false);
-			var open = openState[0];
-			var setOpen = openState[1];
-			var usage = parseUsage(A.host.usage);
-			if (!moduleOn('widget') || A.canary.disabled || !usage) return null;
-			var warn = A.cfg.widget && usage.balance !== null ? usage.balance < (A.cfg.widget.warnBelow || 5) : false;
-			var parts = [];
-			if (A.cfg.widget.showBalance !== false) parts.push(h('span', { key: 'b', className: warn ? 'aeth-warn' : '' }, h('b', null, fmtMoney(usage.balance))));
-			if (A.cfg.widget.showToday !== false) parts.push(h('span', { key: 't' }, t('label.today') + ' ' + fmtMoney(usage.today)));
-			if (A.cfg.widget.showTurn !== false && usage.lastTurn) parts.push(h('span', { key: 'u' }, t('label.turn') + ' ' + fmtMoney(usage.lastTurn.cost)));
-			return h('div', {
-				className: 'aeth-widget',
-				style: { right: '20px', bottom: '20px' },
-				onClick: function () { setOpen(!open); },
-				title: usage.lastTurn ? usage.lastTurn.model + ' · ' + fmtTokens(usage.lastTurn.tokens) + ' tokens' : '',
-				role: 'button',
-				tabIndex: 0,
-				onKeyDown: function (event) { if (event.key === 'Enter' || event.key === ' ') setOpen(!open); },
-			},
-				parts,
-				open && usage.lastTurn
-					? h('span', { style: { opacity: '.75' } }, usage.lastTurn.model + ' · ' + fmtTokens(usage.lastTurn.tokens))
-					: null,
-			);
-		}
-
 		// ── 开屏动画：纯 CSS，播完自动卸载 ─────────────────────────────────────
 		function BootSplash() {
 			var state = react.useState(true);
@@ -3685,7 +3656,6 @@ window.__ModuleLoader__.load({
 				['wallpaper', t('title.wallpaper')],
 				['glass', t('title.glass')],
 				['pixel', t('title.pixel')],
-				['widget', t('label.widget')],
 				['boot', t('label.boot')],
 				['diag', t('section.diag')],
 				['inputGlow', '渐变边框（输入态）'],
@@ -3870,7 +3840,7 @@ window.__ModuleLoader__.load({
 				),
 				h('div', { className: 'aeth-card' },
 					h('h3', null, '模块'),
-						[['theme', '主题引擎'], ['wallpaper', '壁纸'], ['glass', '玻璃'], ['widget', t('label.widget')], ['boot', t('label.boot')], ['fx', '粒子与小鱼'], ['inputGlow', '渐变边框']].map(function (pair) {
+						[['theme', '主题引擎'], ['wallpaper', '壁纸'], ['glass', '玻璃'], ['boot', t('label.boot')], ['fx', '粒子与小鱼'], ['inputGlow', '渐变边框']].map(function (pair) {
 							return toggleRow(pair[1], moduleOn(pair[0]), function (value) {
 								mutate(function (draft) { draft.modules[pair[0]].enabled = value; });
 							});
