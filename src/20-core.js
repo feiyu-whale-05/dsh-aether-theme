@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.24';
+var VERSION = '1.0.25';
 
 var A = {
 	ctx: null,
@@ -506,7 +506,7 @@ function defaultConfigFallback() {
 		},
 		bubble: { official: true, color: '#dbe7ff', opacity: 0.62 },
 		panel: { scale: 1.15 },
-		meteor: { enabled: false, density: 1, hue: 222 },
+		meteor: { enabled: false, density: 1, hue: 222, maxDist: 160 },
 		userMd: { enabled: true },
 		wallpaper: {
 			mode: 'none', source: 'preset', id: '', cssPreset: 'aurora', fit: 'cover',
@@ -521,7 +521,7 @@ function defaultConfigFallback() {
 		},
 		pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
 		widget: { position: 'bottom-right', showBalance: true, showToday: true, showTurn: true, warnBelow: 5 },
-		fx: { density: 60, fishCount: 3, whale: true },
+		fx: { density: 60, fishCount: 3, whale: true, glow: true, press: true },
 		boot: { durationMs: 2200, style: 'ripple', skipOnReducedMotion: true },
 		diag: { showOverlay: false, canaryStrikes: 40 },
 	};
