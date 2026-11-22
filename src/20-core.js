@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.57';
+var VERSION = '1.0.58';
 
 var A = {
 	ctx: null,
@@ -1219,6 +1219,8 @@ function collectDiag() {
 			pressApplied: A.pressApplied || null,
 			bubbleDeco: {
 				bubbles: document.querySelectorAll('[data-message-bubble]').length,
+				userStack: document.querySelectorAll('[class*="userStack"]').length,
+				candidates: document.querySelectorAll('[data-message-bubble], [class*="userStack"], [class*="userBubble"], [data-message-role="user"]').length,
 				decos: document.querySelectorAll('.aeth-bubble-deco').length,
 				enabled: A.cfg && A.cfg.bubbleDecoration ? A.cfg.bubbleDecoration.enabled : null,
 				image: A.cfg && A.cfg.bubbleDecoration ? A.cfg.bubbleDecoration.image : null,
