@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.18';
+var VERSION = '1.0.19';
 
 var A = {
 	ctx: null,
@@ -772,7 +772,20 @@ function buildStyleText() {
 		'}',
 		// 面板/设置页内容放大 + 按钮文字色
 		'html[data-dsh-aether] .aeth-root { padding: 16px 22px 28px; max-width: min(1320px, 94vw); width: 100%; margin: 0 auto; box-sizing: border-box; color: var(--dsw-alias-label-primary, #e8eaed); }',
-		'html[data-dsh-aether] .aeth-root[data-aeth-surface="panel"] { zoom: var(--aether-panel-scale, 1.15); }',
+				// 面板内滚动：宿主 main 容器是定高 + overflow:hidden，内容超出就看不到了
+		'html[data-dsh-aether] .aeth-root[data-aeth-surface="panel"] {',
+		'  zoom: var(--aether-panel-scale, 1.15);',
+		'  height: 100%;',
+		'  max-height: 100%;',
+		'  overflow-y: auto;',
+		'  overflow-x: hidden;',
+		'  overscroll-behavior: contain;',
+		'  scrollbar-gutter: stable;',
+		'  box-sizing: border-box;',
+		'}',
+		'html[data-dsh-aether] .aeth-root[data-aeth-surface="panel"]::-webkit-scrollbar { width: 10px; }',
+		'html[data-dsh-aether] .aeth-root[data-aeth-surface="panel"]::-webkit-scrollbar-thumb { background: var(--dsw-alias-scrollbar-bg-l2, rgba(255,255,255,.18)); border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }',
+		'html[data-dsh-aether] .aeth-root[data-aeth-surface="panel"]::-webkit-scrollbar-thumb:hover { background: var(--dsw-alias-scrollbar-hover-l2, rgba(255,255,255,.28)); background-clip: content-box; }',
 		'.aeth-root .aeth-btn { color: var(--dsw-alias-label-primary, #e8eaed) !important; }',
 		'.aeth-root .aeth-btn.primary { color: #0b0f16 !important; font-weight: 600; }',
 		'.aeth-root .aeth-btn.danger { color: var(--dsw-alias-state-error-primary, #e06c75) !important; }',
