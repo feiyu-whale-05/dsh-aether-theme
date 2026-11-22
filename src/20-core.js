@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.61';
+var VERSION = '1.0.62';
 
 var A = {
 	ctx: null,
@@ -528,6 +528,7 @@ function defaultConfigFallback() {
 		},
 		bubble: { official: true, color: '#dbe7ff', opacity: 0.62 },
 		bubbleDecoration: { enabled: false, text: '🎀', image: '' },
+		avatars: { enabled: false, user: '我', agent: 'AI', userImage: '', agentImage: '' },
 		panel: { scale: 1.15 },
 		meteor: { enabled: false, density: 1, hue: 222, maxDist: 160 },
 		userMd: { enabled: true },
@@ -768,7 +769,7 @@ function buildStyleText() {
 		'html[data-windows-titlebar][data-dsh-aether] [data-aether-frame]::before {',
 		'  background: linear-gradient(rgba(0, 0, 0, var(--aether-titlebar-extra, .08)), rgba(0, 0, 0, var(--aether-titlebar-extra, .08))), var(--aether-titlebar-bg, var(--aether-chrome-fill)) !important;',
 		'}',
-		'html[data-dsh-aether] header:has([role="tablist"]), html[data-dsh-aether] header:has([data-tab]) { background-color: var(--aether-topbar-bg, transparent) !important; }',
+		'html[data-dsh-aether] [data-conversation-tabs], html[data-dsh-aether] :has(> [data-conversation-tabs]) { background-color: var(--aether-topbar-bg, transparent) !important; }',
 		'html[data-dsh-aether] [data-aether-input-host] { background-color: var(--aether-input-bg, var(--aether-chrome-fill)) !important; }',
 		'html[data-dsh-aether] [data-global-panel] { background-color: var(--aether-settings-bg, transparent) !important; }',
 		'html[data-dsh-aether] body { --dsw-specific-bubble: var(--aether-bubble-bg, var(--dsw-specific-bubble-default, #dbe7ff8a)) !important; }',
@@ -781,7 +782,7 @@ function buildStyleText() {
 		'  background-image: var(--aether-input-img, none) !important;',
 		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
-		'html[data-dsh-aether] header:has([role="tablist"]), html[data-dsh-aether] header:has([data-tab]) {',
+		'html[data-dsh-aether] [data-conversation-tabs], html[data-dsh-aether] :has(> [data-conversation-tabs]) {',
 		'  background-image: var(--aether-topbar-img, none) !important;',
 		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
@@ -994,6 +995,11 @@ function buildStyleText() {
 		'.aeth-title { font-size: 16px; font-weight: 600; }',
 		'.aeth-sub { color: var(--dsw-alias-label-caption, #8b95a3); font-size: 12px; }',
 		'.aeth-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }',
+		// 消息头像
+		'.aeth-avatar { position:absolute; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:600; color:#eaf1ff; background:rgba(34,38,47,.85); border:1px solid rgba(255,255,255,.14); box-shadow:0 3px 10px rgba(0,0,0,.35); overflow:hidden; pointer-events:none; user-select:none; z-index:3; }',
+		'.aeth-avatar img { width:100%; height:100%; object-fit:cover; display:block; }',
+		'.aeth-avatar-user { right:-38px; bottom:2px; background:rgba(65,118,230,.9); }',
+		'.aeth-avatar-agent { left:-38px; top:2px; }',
 		// 用户气泡左下角装饰
 		'.aeth-bubble-deco { position:absolute; left:0px; bottom:-2px; font-size:17px; line-height:1; pointer-events:none; z-index:10; filter: drop-shadow(0 2px 5px rgba(0,0,0,.45)); user-select:none; }',
 		'.aeth-bubble-deco img { width:24px; height:24px; object-fit:contain; display:block; border-radius:6px; }',
@@ -1217,6 +1223,12 @@ function collectDiag() {
 			pressRunning: Boolean(A.pressRunning),
 			pressTarget: A.pressDebug || null,
 			pressApplied: A.pressApplied || null,
+			avatars: {
+				userRows: document.querySelectorAll('[class*="userRow"]').length,
+				agentRows: document.querySelectorAll('[class*="assistantRow"], [class*="assistant"], [class*="markdown"]').length,
+				nodes: document.querySelectorAll('.aeth-avatar').length,
+				enabled: A.cfg && A.cfg.avatars ? A.cfg.avatars.enabled : null,
+			},
 			bubbleDeco: {
 				bubbles: document.querySelectorAll('[data-message-bubble]').length,
 				userStack: document.querySelectorAll('[class*="userStack"]').length,
