@@ -53,3 +53,9 @@ node --test test/     # Host 侧单元测试
 ## 许可
 
 MIT License。代码可商用。仓库不含第三方主题素材：壁纸由用户自行提供，内置背景全部由 CSS 绘制。
+
+## 致谢 / 灵感来源
+
+- 海洋小生物、气泡、浮游生物的呈现方式参考了 [WYH66666666/DSH-Transparent-UI-Plugin](https://github.com/WYH66666666/DSH-Transparent-UI-Plugin)（dsh-client-ui-aqua，AGPL-3.0）：同样是「固定透明容器 + 内联 SVG + CSS keyframes」方案；本插件的 SVG 图形路径与代码为独立编写，未复制上游源码（避免 AGPL 传染到 MIT 项目）。
+- 输入框渐变边框的交互与配色参考 wenxin.baidu.com 的聚焦态设计。
+- 壁纸/玻璃/对比度方案的设计取舍参考了社区里 DSH-UI-Beautify、dsh-pixel-ui、dsh-ui-appearance、dsh-luna-theme、dsh-theme-gallery 等插件的公开实现思路。
