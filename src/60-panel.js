@@ -457,6 +457,91 @@ function AdvancedCards(cfg, mutate) {
 			}),
 		),
 		h('div', { className: 'aeth-card' },
+			h('h3', null, '消息头像'),
+			h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
+				'用户消息右侧、agent 消息左侧的圆形头像（文字或图片）。'),
+			(function () {
+				var av = cfg.avatars || { enabled: false, user: '我', agent: 'AI', userImage: '', agentImage: '' };
+				function avatarRow(side, label) {
+					var image = side === 'user' ? av.userImage : av.agentImage;
+					var text = side === 'user' ? av.user : av.agent;
+					return h('div', { className: 'aeth-row', key: side },
+						h('label', { style: { minWidth: '56px' } }, label),
+						h('input', {
+							className: 'aeth-input',
+							type: 'text',
+							maxLength: 2,
+							value: text || '',
+							style: { width: '56px', textAlign: 'center' },
+							onInput: function (event) {
+								var value = event.target.value;
+								mutate(function (draft) {
+									draft.avatars = Object.assign({}, draft.avatars || {}, side === 'user' ? { user: value, userImage: '' } : { agent: value, agentImage: '' });
+								}, { wallpaper: false });
+								setTimeout(function () { try { scanAvatars(); } catch (error) { /* ignore */ } }, 60);
+							},
+						}),
+						h('label', { className: 'aeth-btn', style: { cursor: 'pointer' } }, image ? '换图' : '用图片',
+							h('input', {
+								type: 'file', accept: 'image/*',
+								style: { position: 'absolute', width: '0', height: '0', opacity: '0', overflow: 'hidden' },
+								onChange: function (event) {
+									var file = event.target.files && event.target.files[0];
+									try { event.target.value = ''; } catch (error) { /* ignore */ }
+									if (!file) return;
+									uploadWallpaper(file, 'avatar').then(function (uploaded) {
+										mutate(function (draft) {
+											draft.avatars = Object.assign({}, draft.avatars || {}, { enabled: true });
+											draft.avatars[side === 'user' ? 'userImage' : 'agentImage'] = uploaded.id;
+										}, { wallpaper: false });
+										setTimeout(function () { try { scanAvatars(); } catch (error) { /* ignore */ } }, 80);
+									}).catch(function (error) {
+										pushLog('error', '头像上传失败', { message: String(error && error.message) });
+									});
+								},
+							})
+						),
+						image
+							? h('button', {
+								type: 'button', className: 'aeth-btn',
+								onClick: function () {
+									mutate(function (draft) {
+										draft.avatars = Object.assign({}, draft.avatars || {});
+										draft.avatars[side === 'user' ? 'userImage' : 'agentImage'] = '';
+									}, { wallpaper: false });
+									setTimeout(function () { try { scanAvatars(); } catch (error) { /* ignore */ } }, 60);
+								},
+							}, '清除')
+							: null,
+						image
+							? h('img', {
+								src: A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(image) + (A.token ? '&token=' + encodeURIComponent(A.token) : ''),
+								alt: '',
+								style: { width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover' },
+							})
+							: null,
+					);
+				}
+				return h('div', null,
+					h('div', { className: 'aeth-row' },
+						h('button', {
+							type: 'button',
+							className: 'aeth-btn' + (av.enabled ? ' primary' : ''),
+							onClick: function () {
+								mutate(function (draft) {
+									draft.avatars = Object.assign({}, draft.avatars || {}, { enabled: !av.enabled });
+								}, { wallpaper: false });
+								setTimeout(function () { try { scanAvatars(); } catch (error) { /* ignore */ } }, 60);
+							},
+						}, av.enabled ? '开' : '关'),
+						h('span', { className: 'aeth-note' }, '消息头像'),
+					),
+					avatarRow('user', '用户'),
+					avatarRow('agent', 'Agent'),
+				);
+			})(),
+		),
+		h('div', { className: 'aeth-card' },
 			h('h3', null, '用户气泡左下角装饰'),
 			h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
 				'像 QQ 装扮一样，在用户消息气泡左下角挂一个小挂件（emoji / 文字 / 图片）。'),
