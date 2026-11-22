@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.33';
+var VERSION = '1.0.34';
 
 var A = {
 	ctx: null,
@@ -409,9 +409,17 @@ function ensureToken() {
 		});
 }
 
-function loadState() {
+function loadState(retried) {
 	return ensureToken().then(function () {
 		return apiFetch('/api/state');
+	}).catch(function (error) {
+		// token 可能来自旧页面：清掉重试一次（会重新 bootstrap）
+		if (!retried && error && (error.status === 401 || error.status === 403)) {
+			A.token = '';
+			return new Promise(function (resolve) { setTimeout(resolve, 1000); })
+				.then(function () { return loadState(true); });
+		}
+		throw error;
 	}).then(function (payload) {
 		A.host.ok = true;
 		A.host.version = payload.version || VERSION;
