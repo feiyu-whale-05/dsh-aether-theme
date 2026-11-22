@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.67';
+var VERSION = '1.0.68';
 
 var A = {
 	ctx: null,
@@ -794,9 +794,11 @@ function buildStyleText() {
 		'  --dsw-specific-sidebar-glass-fill: var(--aether-sidebar-bg, var(--aether-chrome-fill)) !important;',
 		'}',
 		'html[data-windows-titlebar][data-dsh-aether] [data-aether-frame]::before {',
-		'  background: linear-gradient(rgba(0, 0, 0, var(--aether-titlebar-extra, .08)), rgba(0, 0, 0, var(--aether-titlebar-extra, .08))), var(--aether-titlebar-bg, var(--aether-chrome-fill)) !important;',
+		'  background-color: var(--aether-topbar-bg, var(--aether-titlebar-bg, var(--aether-chrome-fill))) !important;',
+		'  background-image: linear-gradient(rgba(0, 0, 0, var(--aether-titlebar-extra, .08)), rgba(0, 0, 0, var(--aether-titlebar-extra, .08))), var(--aether-topbar-img, var(--aether-titlebar-img, none)) !important;',
+		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
-		'html[data-dsh-aether] [data-conversation-tabs], html[data-dsh-aether] [data-aether-topbar] { background-color: var(--aether-topbar-bg, transparent) !important; }',
+		// 会话头/标签行不再应用顶栏背景（顶栏背景只上「应用/编辑」条）
 		'html[data-dsh-aether] [data-aether-input-host] { background-color: var(--aether-input-bg, var(--aether-chrome-fill)) !important; }',
 		'html[data-dsh-aether] [data-global-panel] { background-color: var(--aether-settings-bg, transparent) !important; }',
 		'html[data-dsh-aether] body { --dsw-specific-bubble: var(--aether-bubble-bg, var(--dsw-specific-bubble-default, #dbe7ff8a)) !important; }',
@@ -809,10 +811,7 @@ function buildStyleText() {
 		'  background-image: var(--aether-input-img, none) !important;',
 		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
-		'html[data-dsh-aether] [data-conversation-tabs], html[data-dsh-aether] [data-aether-topbar] {',
-		'  background-image: var(--aether-topbar-img, none) !important;',
-		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
-		'}',
+		'html[data-dsh-aether] [data-conversation-tabs], html[data-dsh-aether] [data-aether-topbar] { background-image: none !important; }',
 		'html[data-dsh-aether][data-windows-titlebar] [data-aether-frame]::before {',
 		'  background-image: var(--aether-titlebar-img, none) !important;',
 		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
