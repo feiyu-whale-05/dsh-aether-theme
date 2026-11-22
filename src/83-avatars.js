@@ -85,6 +85,28 @@ function syncAvatar(row, side, cfg) {
 	} catch (error) { /* ignore */ }
 }
 
+var STATUS_TEXT = /(已完成|运行中|思考中|用时|\d+\s*秒|\d+分)/;
+
+/** 在内容容器的祖先范围内找「已完成，用时…」那一行元素。 */
+function findStatusLine(row) {
+	try {
+		var scope = row.parentElement;
+		for (var depth = 0; scope && depth < 4; depth += 1) {
+			var nodes = scope.querySelectorAll('span, div');
+			for (var i = 0; i < nodes.length; i += 1) {
+				var el = nodes[i];
+				if (el.querySelector('.aeth-avatar')) continue;
+				if (el.children.length > 2) continue;
+				var text = (el.textContent || '').trim();
+				if (!text || text.length > 40) continue;
+				if (STATUS_TEXT.test(text)) return el;
+			}
+			scope = scope.parentElement;
+		}
+	} catch (error) { /* ignore */ }
+	return null;
+}
+
 function scanAvatars() {
 	try {
 		if (!A.cfg || A.canary.disabled) return;
@@ -93,7 +115,14 @@ function scanAvatars() {
 		document.querySelectorAll(AVATAR_AGENT_SELECTOR).forEach(function (row) {
 			// agent 头像只挂到「最外层」的内容容器，避免每个 markdown 块都来一个
 			if (row.parentElement && row.parentElement.closest(AVATAR_AGENT_SELECTOR)) return;
-			syncAvatar(row, 'agent', cfg);
+			// 优先对齐「已完成，用时…」那一行；找不到再退回内容容器
+			var status = findStatusLine(row);
+			syncAvatar(status || row, 'agent', cfg);
+			// 状态行命中后，把内容容器上的旧头像清掉，避免两个
+			if (status && status !== row) {
+				var stale = row.querySelector(':scope > .aeth-avatar');
+				if (stale) stale.remove();
+			}
 		});
 		if (!cfg) {
 			document.querySelectorAll('.aeth-avatar').forEach(function (node) {
