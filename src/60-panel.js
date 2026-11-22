@@ -340,6 +340,60 @@ function AdvancedCards(cfg, mutate) {
 			h('div', { className: 'aeth-note' }, '作用于模型输出的 **加粗重点**（host 的 strong/b）。'),
 		),
 		h('div', { className: 'aeth-card' },
+			h('h3', null, '分区背景（每块可单独配置）'),
+			h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
+				'开启后该区域使用自己的颜色与不透明度；关闭则跟随「外壳暗度」统一值。'),
+			[
+				['sidebar', '侧边栏'],
+				['input', '对话页输入框'],
+				['bubble', '用户气泡'],
+				['topbar', '顶栏（标签栏）'],
+				['titlebar', '标题栏（应用/编辑）'],
+				['settings', '设置页'],
+			].map(function (pair) {
+				var key = pair[0];
+				var item = (cfg.backgrounds && cfg.backgrounds[key]) || { enabled: false, color: '#22262f', opacity: 0.5 };
+				return h('div', { key: key, className: 'aeth-row', style: { alignItems: 'center' } },
+					h('label', { style: { minWidth: '150px' } }, pair[1]),
+					h('button', {
+						className: 'aeth-btn' + (item.enabled ? ' primary' : ''),
+						onClick: function () {
+							mutate(function (draft) {
+								draft.backgrounds = draft.backgrounds || {};
+								draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { enabled: !item.enabled });
+							}, { wallpaper: false });
+						},
+					}, item.enabled ? '独立' : '跟随'),
+					h('input', {
+						type: 'color',
+						value: item.color || '#22262f',
+						disabled: !item.enabled,
+						onChange: function (event) {
+							mutate(function (draft) {
+								draft.backgrounds = draft.backgrounds || {};
+								draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { color: event.target.value });
+							}, { wallpaper: false });
+						},
+						style: { width: '34px', height: '24px', border: 'none', background: 'transparent', opacity: item.enabled ? 1 : 0.4 },
+					}),
+					h('input', {
+						type: 'range', min: 0, max: 1, step: 0.01,
+						value: item.opacity === undefined ? 0.5 : item.opacity,
+						disabled: !item.enabled,
+						onChange: function (event) {
+							mutate(function (draft) {
+								draft.backgrounds = draft.backgrounds || {};
+								draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { opacity: Number(event.target.value) });
+							}, { wallpaper: false });
+						},
+						style: { flex: '1 1 80px', minWidth: '80px', opacity: item.enabled ? 1 : 0.4 },
+					}),
+					h('span', { className: 'aeth-note', style: { minWidth: '40px', textAlign: 'right' } },
+						String(Math.round((item.opacity === undefined ? 0.5 : item.opacity) * 100)) + '%'),
+				);
+			}),
+		),
+		h('div', { className: 'aeth-card' },
 			h('h3', null, '用户气泡'),
 			toggleRow('使用官方气泡样式', bubble.official !== false, function (value) {
 				mutate(function (draft) { draft.bubble = Object.assign({}, draft.bubble || {}, { official: value }); }, { wallpaper: false });
