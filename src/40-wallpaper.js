@@ -145,6 +145,9 @@ function applyWallpaper(reason) {
 		if (A.cfg && A.cfg.theme.deriveFromWallpaper) applyAppearance('wallpaper-derived');
 	}).catch(function () { /* 取色失败不影响壁纸 */ });
 	scheduleRotation();
+	// 舞台层可能刚被重建：把挂在舞台里的特效重新挂上（否则鲸鱼/小鱼/粒子会消失）
+	try { syncFx(); } catch (error) { /* ignore */ }
+	try { syncWhale(); } catch (error) { /* ignore */ }
 	pushLog('info', '壁纸已应用', { reason: reason, kind: kind, source: String(source).slice(0, 100) });
 }
 
