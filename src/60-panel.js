@@ -379,6 +379,17 @@ function AdvancedCards(cfg, mutate) {
 				mutate(function (draft) { draft.fx = Object.assign({}, draft.fx || {}, { density: value }); }, { wallpaper: false });
 				setTimeout(function () { try { syncFx(); } catch (error) { /* ignore */ } }, 60);
 			}),
+			toggleRow('指针光晕（Aqua spotlight）', (cfg.fx || {}).glow !== false, function (value) {
+				mutate(function (draft) { draft.fx = Object.assign({}, draft.fx || {}, { glow: value }); }, { wallpaper: false });
+				setTimeout(function () { try { syncGlowPress(); } catch (error) { /* ignore */ } }, 60);
+			}),
+			toggleRow('悬停下压（3D 倾斜）', (cfg.fx || {}).press !== false, function (value) {
+				mutate(function (draft) { draft.fx = Object.assign({}, draft.fx || {}, { press: value }); }, { wallpaper: false });
+				setTimeout(function () { try { syncGlowPress(); } catch (error) { /* ignore */ } }, 60);
+			}),
+			sliderRow('流星消散距离（超过即消失）', (meteor.maxDist === undefined ? 160 : meteor.maxDist), 40, 600, 10, function (value) {
+				mutate(function (draft) { draft.meteor = Object.assign({}, draft.meteor || {}, { maxDist: value }); }, { wallpaper: false });
+			}, 'px'),
 			toggleRow('粒子鲸鱼（品牌鱼剪影）', (cfg.fx || {}).whale !== false, function (value) {
 				mutate(function (draft) { draft.fx = Object.assign({}, draft.fx || {}, { whale: value }); }, { wallpaper: false });
 				setTimeout(function () { try { syncWhale(); } catch (error) { /* ignore */ } }, 60);
