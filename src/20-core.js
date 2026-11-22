@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.19';
+var VERSION = '1.0.20';
 
 var A = {
 	ctx: null,
@@ -521,7 +521,7 @@ function defaultConfigFallback() {
 		},
 		pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
 		widget: { position: 'bottom-right', showBalance: true, showToday: true, showTurn: true, warnBelow: 5 },
-		fx: { density: 60, fishCount: 4 },
+		fx: { density: 60, fishCount: 3, whale: true },
 		boot: { durationMs: 2200, style: 'ripple', skipOnReducedMotion: true },
 		diag: { showOverlay: false, canaryStrikes: 40 },
 	};
@@ -807,6 +807,10 @@ function buildStyleText() {
 		'#dsh-aether-meteor { position: fixed; inset: 0; z-index: 2147482999; pointer-events: none; }',
 		// 海洋小生物（参考 dsh-client-ui-aqua 的 SVG + CSS 动画方案）
 		'#dsh-aether-critters { position:absolute; inset:0; z-index:3; overflow:hidden; pointer-events:none; }',
+		// 粒子鲸鱼（canvas，居中，mix-blend-mode 让它像背景里的光）
+		'#dsh-aether-whale { position:absolute; z-index:2; transform:translate(-50%,-50%); pointer-events:none; mix-blend-mode:screen; opacity:.92; }',
+		'html[data-dsh-aether] body:not([data-ds-dark-theme]) #dsh-aether-whale { mix-blend-mode:multiply; }',
+		'#dsh-aether-whale canvas { width:100%; height:100%; display:block; }',
 		'#dsh-aether-critters svg { position:absolute; display:block; }',
 		'.aether-critter.fish { color:#9cc0f2; opacity:.42; animation: aether-fish-swim 12s ease-in-out infinite; will-change:transform; filter: drop-shadow(0 0 6px rgba(124,170,240,.35)); }',
 		'.aether-critter.fish.fish-left { animation-name: aether-fish-swim-left; animation-duration:16s; }',
