@@ -379,7 +379,11 @@ function AdvancedCards(cfg, mutate) {
 				mutate(function (draft) { draft.fx = Object.assign({}, draft.fx || {}, { density: value }); }, { wallpaper: false });
 				setTimeout(function () { try { syncFx(); } catch (error) { /* ignore */ } }, 60);
 			}),
-			sliderRow('小鱼数量', (cfg.fx || {}).fishCount === undefined ? 4 : cfg.fx.fishCount, 0, 10, 1, function (value) {
+			toggleRow('粒子鲸鱼（品牌鱼剪影）', (cfg.fx || {}).whale !== false, function (value) {
+				mutate(function (draft) { draft.fx = Object.assign({}, draft.fx || {}, { whale: value }); }, { wallpaper: false });
+				setTimeout(function () { try { syncWhale(); } catch (error) { /* ignore */ } }, 60);
+			}),
+			sliderRow('小鱼数量', (cfg.fx || {}).fishCount === undefined ? 3 : cfg.fx.fishCount, 0, 10, 1, function (value) {
 				mutate(function (draft) { draft.fx = Object.assign({}, draft.fx || {}, { fishCount: value }); }, { wallpaper: false });
 				setTimeout(function () { try { syncFx(); } catch (error) { /* ignore */ } }, 60);
 			}),
