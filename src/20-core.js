@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.73';
+var VERSION = '1.0.74';
 
 var A = {
 	ctx: null,
@@ -1025,7 +1025,7 @@ function buildStyleText() {
 		'.aeth-avatar { position:absolute; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:600; color:#eaf1ff; background:rgba(34,38,47,.85); border:1px solid rgba(255,255,255,.14); box-shadow:0 3px 10px rgba(0,0,0,.35); overflow:hidden; pointer-events:none; user-select:none; z-index:3; }',
 		'.aeth-avatar img { width:100%; height:100%; object-fit:cover; display:block; }',
 		'.aeth-avatar-user { right:-38px; top:0px; background:rgba(65,118,230,.9); }',
-		'.aeth-avatar-agent { left:-38px; top:-4px; }',
+		'.aeth-avatar-agent { left:-40px; top:50%; margin-top:-15px; }',
 		// 用户气泡左下角装饰
 		'.aeth-bubble-deco { position:absolute; left:0px; bottom:-2px; font-size:17px; line-height:1; pointer-events:none; z-index:10; filter: drop-shadow(0 2px 5px rgba(0,0,0,.45)); user-select:none; }',
 		'.aeth-bubble-deco img { width:24px; height:24px; object-fit:contain; display:block; border-radius:6px; }',
