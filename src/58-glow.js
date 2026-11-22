@@ -158,6 +158,12 @@ function pressApply() {
 	PRESS.raf = null;
 	var pane = PRESS.current;
 	if (!pane || !pressTiltable(pane)) return;
+	// 侧栏：任何 transform 都会创建 containing block，把侧栏里 position:fixed 的
+	// 收起按钮挤出顶栏。所以侧栏只做「不产生变换」的按压：内阴影 + 背景压暗。
+	if (pressIsSidebar(pane)) {
+		pressSoftDown(pane, true);
+		return;
+	}
 	var rect = pane.getBoundingClientRect();
 	if (rect.width === 0 || rect.height === 0) return;
 	var rx = ((GLOW.x - rect.left) / rect.width) * 2 - 1;
