@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.30';
+		var VERSION = '1.0.31';
 
 		var A = {
 			ctx: null,
@@ -1362,6 +1362,19 @@ window.__ModuleLoader__.load({
 				config: A.cfg ? { mode: A.cfg.wallpaper && A.cfg.wallpaper.mode, modules: A.cfg.modules } : null,
 				tokens: tokens,
 				host: { ok: A.host.ok, version: A.host.version },
+				effects: {
+					stage: Boolean(A.stageEl && document.body.contains(A.stageEl)),
+					critters: typeof CRITTERS !== 'undefined' ? CRITTERS.built : null,
+					whaleParticles: typeof WHALE !== 'undefined' ? WHALE.particles.length : null,
+					whaleRunning: typeof WHALE !== 'undefined' ? WHALE.running : null,
+					meteorMounted: Boolean(A.meteorMounted),
+					meteorCanvas: Boolean(A.meteorDebug),
+					meteorEnabled: Boolean(A.meteorEnabled),
+					pressRunning: Boolean(A.pressRunning),
+					pressTarget: A.pressDebug || null,
+					glow: Boolean(A.cfg && A.cfg.fx && A.cfg.fx.glow !== false),
+					fxModule: moduleOn('fx'),
+				},
 				errors: A.logs.filter(function (entry) { return entry.level === 'error' || entry.level === 'warn'; }).slice(-10),
 			};
 		}
@@ -2068,6 +2081,9 @@ window.__ModuleLoader__.load({
 				if (A.cfg && A.cfg.theme.deriveFromWallpaper) applyAppearance('wallpaper-derived');
 			}).catch(function () { /* 取色失败不影响壁纸 */ });
 			scheduleRotation();
+			// 舞台层可能刚被重建：把挂在舞台里的特效重新挂上（否则鲸鱼/小鱼/粒子会消失）
+			try { syncFx(); } catch (error) { /* ignore */ }
+			try { syncWhale(); } catch (error) { /* ignore */ }
 			pushLog('info', '壁纸已应用', { reason: reason, kind: kind, source: String(source).slice(0, 100) });
 		}
 
