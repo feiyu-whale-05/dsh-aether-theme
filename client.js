@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.55';
+		var VERSION = '1.0.56';
 
 		var A = {
 			ctx: null,
@@ -817,6 +817,7 @@ window.__ModuleLoader__.load({
 					strongColor: '#ffe6a3', fontFamily: '', fontSize: 0,
 				},
 				bubble: { official: true, color: '#dbe7ff', opacity: 0.62 },
+				bubbleDecoration: { enabled: false, text: '🎀', image: '' },
 				panel: { scale: 1.15 },
 				meteor: { enabled: false, density: 1, hue: 222, maxDist: 160 },
 				userMd: { enabled: true },
@@ -1283,6 +1284,9 @@ window.__ModuleLoader__.load({
 				'.aeth-title { font-size: 16px; font-weight: 600; }',
 				'.aeth-sub { color: var(--dsw-alias-label-caption, #8b95a3); font-size: 12px; }',
 				'.aeth-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }',
+				// 用户气泡左下角装饰
+				'.aeth-bubble-deco { position:absolute; left:-7px; bottom:-9px; font-size:17px; line-height:1; pointer-events:none; z-index:2; filter: drop-shadow(0 2px 5px rgba(0,0,0,.45)); user-select:none; }',
+				'.aeth-bubble-deco img { width:24px; height:24px; object-fit:contain; display:block; border-radius:6px; }',
 				'.aeth-tab { padding:5px 12px; border-radius:999px; border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.12)); background:transparent; color:var(--dsw-alias-label-secondary,#b6bec9); cursor:pointer; font-size:12px; }',
 				'.aeth-tab.on { color: var(--dsw-alias-label-primary,#fff); border-color: var(--aether-accent,#7aa2ff); background: color-mix(in srgb, var(--aether-accent,#7aa2ff) 16%, transparent); }',
 				'.aeth-card { border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.1)); border-radius:14px; padding:14px 16px; margin-bottom:12px; background: var(--dsw-alias-bg-layer-1, rgba(255,255,255,.03)); }',
@@ -3731,6 +3735,90 @@ window.__ModuleLoader__.load({
 					}),
 				),
 				h('div', { className: 'aeth-card' },
+					h('h3', null, '用户气泡左下角装饰'),
+					h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
+						'像 QQ 装扮一样，在用户消息气泡左下角挂一个小挂件（emoji / 文字 / 图片）。'),
+					(function () {
+						var deco = cfg.bubbleDecoration || { enabled: false, text: '🎀', image: '' };
+						return h('div', null,
+							h('div', { className: 'aeth-row' },
+								h('button', {
+									type: 'button',
+									className: 'aeth-btn' + (deco.enabled ? ' primary' : ''),
+									onClick: function () {
+										mutate(function (draft) {
+											draft.bubbleDecoration = Object.assign({}, draft.bubbleDecoration || {}, { enabled: !deco.enabled });
+										}, { wallpaper: false });
+										setTimeout(function () { try { scanBubbleDeco(); } catch (error) { /* ignore */ } }, 60);
+									},
+								}, deco.enabled ? '开' : '关'),
+								h('span', { className: 'aeth-note' }, '挂件'),
+								h('input', {
+									className: 'aeth-input',
+									type: 'text',
+									value: deco.text || '',
+									maxLength: 8,
+									placeholder: '🎀',
+									style: { width: '70px', textAlign: 'center' },
+									onInput: function (event) {
+										var value = event.target.value;
+										mutate(function (draft) {
+											draft.bubbleDecoration = Object.assign({}, draft.bubbleDecoration || {}, { text: value, image: '' });
+										}, { wallpaper: false });
+										setTimeout(function () { try { scanBubbleDeco(); } catch (error) { /* ignore */ } }, 60);
+									},
+								}),
+								h('label', {
+									className: 'aeth-btn',
+									style: { cursor: 'pointer' },
+								}, deco.image ? '换图' : '用图片',
+									h('input', {
+										type: 'file',
+										accept: 'image/*',
+										style: { position: 'absolute', width: '0', height: '0', opacity: '0', overflow: 'hidden' },
+										onChange: function (event) {
+											var file = event.target.files && event.target.files[0];
+											try { event.target.value = ''; } catch (error) { /* ignore */ }
+											if (!file) return;
+											uploadWallpaper(file, 'deco').then(function (uploaded) {
+												mutate(function (draft) {
+													draft.bubbleDecoration = Object.assign({}, draft.bubbleDecoration || {}, { image: uploaded.id, enabled: true });
+												}, { wallpaper: false });
+												setTimeout(function () { try { scanBubbleDeco(); } catch (error) { /* ignore */ } }, 80);
+											}).catch(function (error) {
+												pushLog('error', '气泡装饰上传失败', { message: String(error && error.message) });
+											});
+										},
+									})
+								),
+								deco.image
+									? h('button', {
+										type: 'button',
+										className: 'aeth-btn',
+										onClick: function () {
+											mutate(function (draft) {
+												draft.bubbleDecoration = Object.assign({}, draft.bubbleDecoration || {}, { image: '', text: '🎀' });
+											}, { wallpaper: false });
+											setTimeout(function () { try { scanBubbleDeco(); } catch (error) { /* ignore */ } }, 60);
+										},
+									}, '清除图片')
+									: null,
+							),
+							// 预览
+							h('div', { className: 'aeth-note', style: { marginTop: '6px' } },
+								'预览：消息气泡左下角 ',
+								deco.image
+									? h('img', {
+										src: A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(deco.image) + (A.token ? '&token=' + encodeURIComponent(A.token) : ''),
+										alt: '',
+										style: { width: '22px', height: '22px', objectFit: 'contain', verticalAlign: 'middle', borderRadius: '5px' },
+									})
+									: h('span', { style: { fontSize: '17px', verticalAlign: 'middle' } }, deco.text || '🎀'),
+							),
+						);
+					})(),
+				),
+				h('div', { className: 'aeth-card' },
 					h('h3', null, '用户气泡'),
 					toggleRow('使用官方气泡样式', bubble.official !== false, function (value) {
 						mutate(function (draft) { draft.bubble = Object.assign({}, draft.bubble || {}, { official: value }); }, { wallpaper: false });
@@ -4528,6 +4616,86 @@ window.__ModuleLoader__.load({
 				userMdObserver = null;
 			}
 			if (userMdTimer) { clearTimeout(userMdTimer); userMdTimer = null; }
+		}
+
+		// ── 82-bubble-deco.js ───────────────────────────────────────────────
+		// ── bubble-deco：用户气泡左下角装饰（类似 QQ 的装扮挂件） ─────────────
+		// 宿主用户气泡容器：<UserMessageBubble data-message-bubble>，只用于用户消息，
+		// 所以在它内部追加一个绝对定位的小节点即可，不改变原有布局。
+
+		var BUBBLE_DECO_SELECTOR = '[data-message-bubble]';
+
+		function bubbleDecoConfig() {
+			var cfg = A.cfg && A.cfg.bubbleDecoration;
+			if (!cfg || cfg.enabled !== true) return null;
+			if (!cfg.text && !cfg.image) return null;
+			return cfg;
+		}
+
+		function renderBubbleDeco(node, cfg) {
+			try {
+				if (cfg.image) {
+					var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(cfg.image) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
+					if (node.getAttribute('data-deco-image') !== cfg.image) {
+						node.setAttribute('data-deco-image', cfg.image);
+						node.textContent = '';
+						var img = document.createElement('img');
+						img.src = url;
+						img.alt = '';
+						img.draggable = false;
+						img.onerror = function () { try { img.remove(); } catch (error) { /* ignore */ } };
+						node.appendChild(img);
+					}
+				} else {
+					if (node.getAttribute('data-deco-image')) {
+						node.removeAttribute('data-deco-image');
+						node.textContent = '';
+					}
+					if (node.textContent !== cfg.text) node.textContent = cfg.text;
+				}
+			} catch (error) { /* ignore */ }
+		}
+
+		/** 给一个用户气泡同步装饰（有则更新、无则插入、关闭则移除）。 */
+		function syncBubbleDeco(bubble) {
+			try {
+				if (!bubble) return;
+				var cfg = bubbleDecoConfig();
+				var existing = null;
+				var children = bubble.children;
+				for (var i = 0; i < children.length; i += 1) {
+					if (children[i].classList && children[i].classList.contains('aeth-bubble-deco')) { existing = children[i]; break; }
+				}
+				if (!cfg) {
+					if (existing) existing.remove();
+					return;
+				}
+				if (existing) { renderBubbleDeco(existing, cfg); return; }
+				var position = '';
+				try { position = window.getComputedStyle(bubble).position; } catch (error) { position = ''; }
+				if (!position || position === 'static') bubble.style.position = 'relative';
+				var node = document.createElement('span');
+				node.className = 'aeth-bubble-deco';
+				node.setAttribute('aria-hidden', 'true');
+				renderBubbleDeco(node, cfg);
+				bubble.appendChild(node);
+			} catch (error) { /* ignore */ }
+		}
+
+		/** 扫描全部用户气泡（聊天区异步渲染，随 usermd 的观察器一起跑）。 */
+		function scanBubbleDeco() {
+			if (!A.cfg || A.canary.disabled) return;
+			var bubbles = document.querySelectorAll(BUBBLE_DECO_SELECTOR);
+			for (var i = 0; i < bubbles.length; i += 1) syncBubbleDeco(bubbles[i]);
+		}
+
+		/** 清掉所有装饰（关闭开关时调用）。 */
+		function clearBubbleDeco() {
+			try {
+				document.querySelectorAll('.aeth-bubble-deco').forEach(function (node) {
+					try { node.remove(); } catch (error) { /* ignore */ }
+				});
+			} catch (error) { /* ignore */ }
 		}
 
 		// ── 90-apply.js ─────────────────────────────────────────────────────
