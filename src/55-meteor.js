@@ -37,6 +37,7 @@ function MeteorCursor() {
 		var particles = [];
 		var frame = null;
 		var last = { x: -1, y: -1, t: 0 };
+		var pointer = { x: -9999, y: -9999 };
 		var density = clamp((A.cfg.meteor && A.cfg.meteor.density) || 1, 0.2, 3);
 		var hueBase = clamp((A.cfg.meteor && A.cfg.meteor.hue) || 222, 0, 360);
 
@@ -72,6 +73,8 @@ function MeteorCursor() {
 			var now = performance.now();
 			var x = event.clientX;
 			var y = event.clientY;
+			pointer.x = x;
+			pointer.y = y;
 			var dt = now - last.t;
 			if (last.x >= 0 && dt < 40) {
 				spawn(x, y, x - last.x, y - last.y);
@@ -81,9 +84,18 @@ function MeteorCursor() {
 
 		function tick() {
 			context.clearRect(0, 0, window.innerWidth, window.innerHeight);
+			var maxDist = clamp((A.cfg && A.cfg.meteor && A.cfg.meteor.maxDist) || 160, 40, 900);
+			var maxDistSq = maxDist * maxDist;
 			context.globalCompositeOperation = 'lighter';
 			for (var i = particles.length - 1; i >= 0; i -= 1) {
 				var p = particles[i];
+				// 离鼠标太远立即消散（避免拖尾散成一长条）
+				var ddx = p.x - pointer.x;
+				var ddy = p.y - pointer.y;
+				if (ddx * ddx + ddy * ddy > maxDistSq) {
+					particles.splice(i, 1);
+					continue;
+				}
 				p.x += p.vx;
 				p.y += p.vy;
 				p.vx *= 0.93;
