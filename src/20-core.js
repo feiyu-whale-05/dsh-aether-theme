@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.28';
+var VERSION = '1.0.29';
 
 var A = {
 	ctx: null,
@@ -676,18 +676,22 @@ function buildStyleText() {
 		// 只有显式打开磨砂（chromeBlur > 0）时才加 backdrop-filter；
 		// 否则悬空属性会创建 containing block，破坏侧栏里 fixed 按钮的定位。
 		// 三处外壳统一磨砂：侧栏列 / 顶栏 header / 输入框卡片，同一 blur 值（Aqua 默认 14px）
+		'html[data-dsh-aether][data-chrome-blur="on"] [data-aether-frame],',
 		'html[data-dsh-aether][data-chrome-blur="on"] [class*="sidebarCol"],',
-		'html[data-dsh-aether][data-chrome-blur="on"] header,',
 		'html[data-dsh-aether][data-chrome-blur="on"] [data-aether-input-host] {',
 		'  backdrop-filter: blur(var(--aether-chrome-blur, 14px)) saturate(1.4) !important;',
 		'}',
 		// 侧栏里出现 dialog 时撤掉磨砂（避免给 fixed 元素建包含块，Aqua 同款处理）
 		'html[data-dsh-aether] [class*="sidebarCol"]:has([role="dialog"]) { backdrop-filter: none !important; }',
-		// 输入框卡片底色与侧栏/顶栏用同一个变量（宿主卡片自带 #14161B99，统一覆盖）
-		'html[data-dsh-aether] [data-aether-input-host],',
-		'html[data-dsh-aether] header,',
-		'html[data-dsh-aether] [class*="sidebarCol"] {',
+		// 输入框卡片底色统一到外壳变量（侧栏与顶栏由宿主的 frame/sidebar-fill 变量控制，
+		// 不再强行覆盖它们自身的背景，避免盖住侧栏里的折叠按钮等控件）
+		'html[data-dsh-aether] [data-aether-input-host] {',
 		'  background-color: var(--aether-chrome-fill) !important;',
+		'}',
+		// Windows 标题栏（「应用/编辑」那行）：宿主 .frame 与 .frame::before 各铺了一层
+		// 同一半透明色，叠起来比侧栏深一倍。把 ::before 那层设为透明，只留 frame 一层。
+		'html[data-windows-titlebar][data-dsh-aether] [data-aether-frame]::before {',
+		'  background: transparent !important;',
 		'}',
 		// 顶栏（Windows 标题栏带「应用/编辑」那行）：frame 背景已由 sidebar-fill 控制，
 		// 这里把 sidebar-fill 直接绑到同一个 chrome 变量
