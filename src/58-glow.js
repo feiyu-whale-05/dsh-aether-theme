@@ -108,8 +108,9 @@ function pressFindFloatingPane(target) {
 		while (node && node !== document.body && depth < 10) {
 			var style = window.getComputedStyle(node);
 			// 排除主面板（含设置页/图片预览/插件列表）、dialog、插件自己的面板
-			if (node.hasAttribute('data-global-panel') || (node.matches && node.matches('[role="dialog"], [aria-modal="true"]'))
-				|| (node.closest && node.closest('.aeth-root, [role="dialog"], [aria-modal="true"]'))) {
+			// 排除「祖先链里有全局面板/插件面板/dialog」的节点：
+			// 设置页内部元素此前会被误判成浮层，导致设置页被下压
+			if (node.closest && node.closest('[data-global-panel], .aeth-root, [role="dialog"], [aria-modal="true"]')) {
 				node = node.parentElement;
 				depth += 1;
 				continue;
