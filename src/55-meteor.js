@@ -8,7 +8,26 @@ function MeteorCursor() {
 	var canvasState = react.useState(null);
 	var canvas = canvasState[0];
 	var setCanvas = canvasState[1];
-	var enabled = Boolean(A.cfg && A.cfg.meteor && A.cfg.meteor.enabled) && moduleOn('theme') && !A.canary.disabled;
+	var switchState = react.useState(false);
+	var enabled = switchState[0];
+	var setEnabled = switchState[1];
+	// 开关状态自己轮询（800ms）：配置异步到达/宿主重渲染时也能自动武装，不再依赖 notify 时机
+	react.useEffect(function () {
+		function sync() {
+			var next = Boolean(A.cfg && A.cfg.meteor && A.cfg.meteor.enabled === true) && !shouldReduceMotion();
+			A.meteorEnabled = next;
+			A.meteorState = {
+				hasCfg: Boolean(A.cfg),
+				enabledRaw: A.cfg && A.cfg.meteor ? A.cfg.meteor.enabled : 'missing',
+				reduceMotion: shouldReduceMotion(),
+				final: next,
+			};
+			setEnabled(function (prev) { return prev === next ? prev : next; });
+		}
+		sync();
+		var timer = setInterval(sync, 800);
+		return function () { clearInterval(timer); };
+	}, []);
 
 	react.useEffect(function () {
 		if (!enabled) {
