@@ -32,6 +32,14 @@ dsh plugin --profile desktop add D:/DSH-plugins/dsh-aether-theme
 
 安装后重启 DSH。左侧栏「以太主题」是控制台；设置页「以太主题」是快速项。
 
+## 组合包
+
+这是一个**组合包**：安装本插件会同时启用费用统计伙伴 [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter)（MIT），由它提供会话成本/余额/峰谷价提醒，本插件不再自带简陋的余额挂件。
+
+- 本插件 `dependencies` 声明了 `dsh-cost-meter`，`cordis.patch.yml` 额外 insert 一行加载它
+- 如果你的 profile 已经单独装过 dsh-cost-meter（`bundles` 里有它），**删掉**本插件 patch 里的「组合包」段，否则会注册两次
+- 只想用主题、不想带费用条：同样删掉那段即可
+
 ## 目录
 
 ```
