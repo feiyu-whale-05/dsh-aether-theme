@@ -710,11 +710,10 @@ function DiagTab(exportDiag) {
 				h('b', null, '下压状态'), h('span', { className: A.pressRunning ? 'aeth-ok' : 'aeth-bad' },
 					A.pressRunning ? ('监听中（' + Math.round(TILT_MAX / 0.01745 * 10) / 10 + '° 倾斜）') : '未启动'),
 				h('b', null, '下压目标'), h('span', null, A.pressDebug ? (A.pressDebug.tag + '.' + (A.pressDebug.cls.split(' ')[0] || '') + (A.pressDebug.position ? ' [' + A.pressDebug.position + ']' : '')) : '（把指针移到对话框上再看）'),
-				h('b', null, '流星尾缀'), h('span', { className: A.meteorDebug ? 'aeth-ok' : 'aeth-bad' },
-					A.meteorDebug ? 'canvas 已挂载（' + A.meteorDebug.canvas.width + '×' + A.meteorDebug.canvas.height + '）'
-						: (!A.meteorMounted ? '组件未渲染'
-							: (shouldReduceMotion() ? 'reduced-motion 静默'
-								: (A.meteorEnabled ? '已启用但 canvas 未挂载' : '开关未开')))),
+				h('b', null, '流星尾缀'), h('span', { className: (typeof METEOR !== 'undefined' && METEOR.canvas) ? 'aeth-ok' : 'aeth-bad' },
+					(typeof METEOR !== 'undefined' && METEOR.canvas)
+						? ('运行中 · canvas ' + METEOR.canvas.width + '×' + METEOR.canvas.height + ' · 粒子 ' + METEOR.particles.length)
+						: (shouldReduceMotion() ? 'reduced-motion 静默' : (meteorEnabled() ? '已启用但未启动' : '开关未开'))),
 				h('b', null, '粒子/小鱼'), h('span', { className: (typeof CRITTERS !== 'undefined' && CRITTERS.built > 0) ? 'aeth-ok' : 'aeth-bad' },
 					(typeof CRITTERS !== 'undefined' && CRITTERS.built > 0)
 						? CRITTERS.built + ' 个节点已注入'
@@ -726,11 +725,13 @@ function DiagTab(exportDiag) {
 				h('button', {
 					className: 'aeth-btn',
 					onClick: function () {
-						if (!A.meteorDebug || !A.meteorDebug.spawn) { setStatus('流星 canvas 未挂载'); setTimeout(function () { setStatus(''); }, 1600); return; }
+						if (typeof METEOR === 'undefined' || !METEOR.running) { setStatus('流星未启动（检查开关/减弱动效）'); setTimeout(function () { setStatus(''); }, 1800); return; }
 						var cx = Math.round(window.innerWidth / 2);
 						var cy = Math.round(window.innerHeight / 2);
-						for (var i = 0; i < 30; i += 1) {
-							A.meteorDebug.spawn(cx + (i - 15) * 6, cy + (i % 5) * 4, 12, 6);
+						METEOR.pointer.x = cx;
+						METEOR.pointer.y = cy;
+						for (var i = 0; i < 24; i += 1) {
+							meteorSpawn(cx + (i - 12) * 7, cy + (i % 6) * 5, 14, 8);
 						}
 					},
 				}, '测试流星'),
