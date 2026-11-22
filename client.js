@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.36';
+		var VERSION = '1.0.37';
 
 		var A = {
 			ctx: null,
@@ -1130,7 +1130,12 @@ window.__ModuleLoader__.load({
 				'html[data-dsh-aether] body:not([data-ds-dark-theme]) #dsh-aether-whale { mix-blend-mode:multiply; }',
 				'#dsh-aether-whale canvas { width:100%; height:100%; display:block; }',
 				// 侧栏下压：内阴影（不创建 containing block，不影响 fixed 按钮）
-				'html[data-dsh-aether] [data-aether-pressed="1"] {',
+						// 下压内阴影（3D 倾斜是主效果，这层保证任何容器都看得出"压下去"）
+				'html[data-dsh-aether] [data-aether-press-shade="1"] {',
+				'  box-shadow: inset 0 0 70px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .05) !important;',
+				'  transition: box-shadow .16s ease, transform .16s ease;',
+				'}',
+		'html[data-dsh-aether] [data-aether-pressed="1"] {',
 				'  box-shadow: inset 0 0 80px rgba(0, 0, 0, .26) !important;',
 				'  transition: box-shadow .18s ease;',
 				'}',
@@ -1382,6 +1387,7 @@ window.__ModuleLoader__.load({
 					meteorSize: typeof METEOR !== 'undefined' && METEOR.canvas ? (METEOR.canvas.width + 'x' + METEOR.canvas.height) : null,
 					pressRunning: Boolean(A.pressRunning),
 					pressTarget: A.pressDebug || null,
+					pressApplied: A.pressApplied || null,
 					glow: Boolean(A.cfg && A.cfg.fx && A.cfg.fx.glow !== false),
 					fxModule: moduleOn('fx'),
 				},
@@ -2340,7 +2346,7 @@ window.__ModuleLoader__.load({
 					vy: -dy * 0.045 + (Math.random() - 0.5) * 1.4 - 0.35,
 					life: 1,
 					decay: 0.032 + Math.random() * 0.045,
-					size: 1.3 + Math.random() * 2.8,
+					size: 0.7 + Math.random() * 1.5,
 					hue: hueBase + (Math.random() * 70 - 20),
 				});
 			}
@@ -2374,10 +2380,10 @@ window.__ModuleLoader__.load({
 					METEOR.particles.splice(i, 1);
 					continue;
 				}
-				var alpha = Math.max(0, p.life) * 0.95;
+				var alpha = Math.max(0, p.life) * 0.62;
 				var gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 4);
-				gradient.addColorStop(0, 'hsla(' + p.hue + ', 100%, 86%, ' + alpha + ')');
-				gradient.addColorStop(0.45, 'hsla(' + (p.hue + 18) + ', 100%, 72%, ' + (alpha * 0.7) + ')');
+				gradient.addColorStop(0, 'hsla(' + p.hue + ', 100%, 76%, ' + alpha + ')');
+				gradient.addColorStop(0.45, 'hsla(' + (p.hue + 18) + ', 100%, 64%, ' + (alpha * 0.6) + ')');
 				gradient.addColorStop(1, 'hsla(' + (p.hue + 30) + ', 100%, 60%, 0)');
 				ctx.fillStyle = gradient;
 				ctx.beginPath();
@@ -3014,6 +3020,8 @@ window.__ModuleLoader__.load({
 		function pressNeutral(pane) {
 			if (!pane) return;
 			pressSoftDown(pane, false);
+			try { pane.removeAttribute('data-aether-press-shade'); } catch (error) { /* ignore */ }
+			A.pressApplied = null;
 			pane.style.transform = 'perspective(' + TILT_PERSPECTIVE + 'px) rotateX(0rad) rotateY(0rad) scale(1)';
 			var old = PRESS.timers.get(pane);
 			if (old) clearTimeout(old);
@@ -3045,7 +3053,13 @@ window.__ModuleLoader__.load({
 			var rotateY = rx * TILT_MAX;
 			var rotateX = -ry * TILT_MAX;
 			pane.style.transformOrigin = 'center center';
-			pane.style.transform = 'perspective(' + TILT_PERSPECTIVE + 'px) rotateX(' + rotateX.toFixed(5) + 'rad) rotateY(' + rotateY.toFixed(5) + 'rad) scale(1)';
+			var css = 'perspective(' + TILT_PERSPECTIVE + 'px) rotateX(' + rotateX.toFixed(5) + 'rad) rotateY(' + rotateY.toFixed(5) + 'rad) scale(1)';
+			pane.style.transform = css;
+			// 内阴影兜底：3D 倾斜在 overflow:hidden 容器里可能看不出来，阴影一定可见
+			if (!pane.getAttribute('data-aether-press-shade')) {
+				pane.setAttribute('data-aether-press-shade', '1');
+			}
+			A.pressApplied = { cls: String(pane.className || '').slice(0, 80), transform: css, at: Date.now() };
 		}
 
 		function pressOnMove(event) {
