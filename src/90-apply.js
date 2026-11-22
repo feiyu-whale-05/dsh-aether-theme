@@ -209,6 +209,9 @@ var apply = function apply(ctx) {
 						document.documentElement.removeAttribute('data-glass-blur');
 						document.documentElement.removeAttribute('data-chrome-blur');
 						clearInputHosts();
+						try {
+							document.querySelectorAll('[data-aether-frame]').forEach(function (node) { node.removeAttribute('data-aether-frame'); });
+						} catch (error) { /* ignore */ }
 					} catch (error) { /* ignore */ }
 					try { delete window.__DSH_AETHER_THEME__; } catch (error) { /* ignore */ }
 					A.subscribers = [];
