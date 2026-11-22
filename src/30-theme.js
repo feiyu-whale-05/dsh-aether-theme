@@ -289,6 +289,24 @@ function applyAppearance(reason) {
 	var chromeColor = dark ? { r: 34, g: 38, b: 47, a: 1 } : { r: 255, g: 255, b: 255, a: 1 };
 	var chromeBlur = clamp(glass.chromeBlur === undefined ? 14 : glass.chromeBlur, 0, 40);
 
+	// 分区背景：每个区域独立颜色/透明度，未启用则 clearVar 回落到外壳统一色
+	var regionBg = A.cfg.backgrounds || {};
+	(function applyRegionBackgrounds() {
+		var keys = ['sidebar', 'input', 'bubble', 'topbar', 'titlebar', 'settings'];
+		for (var i = 0; i < keys.length; i += 1) {
+			var key = keys[i];
+			var item = regionBg[key];
+			var varName = '--aether-' + key + '-bg';
+			if (item && item.enabled === true) {
+				var color = parseColor(item.color || '#22262f');
+				var alpha = clamp(item.opacity === undefined ? 0.5 : item.opacity, 0, 1);
+				setVar(varName, rgba(color, alpha));
+			} else {
+				clearVar(varName);
+			}
+		}
+	})();
+
 	var vars = {
 		'--aether-accent': palette.accent,
 		'--aether-chrome-fill': rgba(chromeColor, chromeOpacity),
