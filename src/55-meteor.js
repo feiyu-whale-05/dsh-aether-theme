@@ -4,6 +4,7 @@
 
 function MeteorCursor() {
 	useAetherTick();
+	A.meteorMounted = true;
 	var canvasState = react.useState(null);
 	var canvas = canvasState[0];
 	var setCanvas = canvasState[1];
