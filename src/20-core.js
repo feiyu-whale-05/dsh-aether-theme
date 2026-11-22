@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.20';
+var VERSION = '1.0.21';
 
 var A = {
 	ctx: null,
