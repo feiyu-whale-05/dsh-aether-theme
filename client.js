@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.54';
+		var VERSION = '1.0.55';
 
 		var A = {
 			ctx: null,
@@ -1304,7 +1304,8 @@ window.__ModuleLoader__.load({
 				'.aeth-wall { position:relative; border-radius:10px; overflow:hidden; border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.12)); aspect-ratio: 16/10; background:#0b0d12; cursor:pointer; }',
 				'.aeth-wall img, .aeth-wall video { width:100%; height:100%; object-fit:cover; display:block; }',
 				'.aeth-wall .aeth-badge { position:absolute; left:6px; bottom:6px; font-size:10px; padding:2px 7px; border-radius:999px; background:rgba(0,0,0,.6); color:#fff; }',
-				'.aeth-wall .aeth-x { position:absolute; right:4px; top:4px; width:20px; height:20px; border-radius:50%; border:none; background:rgba(0,0,0,.55); color:#fff; cursor:pointer; line-height:20px; font-size:12px; }',
+				'.aeth-wall .aeth-x { position:absolute; right:4px; top:4px; width:20px; height:20px; border-radius:50%; border:none; background:rgba(0,0,0,.65); color:#fff; cursor:pointer; line-height:20px; font-size:12px; z-index:5; }',
+				'.aeth-wall > img, .aeth-wall > video { pointer-events:none; }',
 				'.aeth-wall.on { outline:2px solid var(--aether-accent,#7aa2ff); }',
 				'.aeth-note { font-size:11px; color: var(--dsw-alias-label-caption,#8b95a3); line-height:1.6; }',
 				'.aeth-kv { display:grid; grid-template-columns: 130px 1fr; gap:4px 10px; font-size:12px; }',
@@ -2337,7 +2338,10 @@ window.__ModuleLoader__.load({
 						A.cfg.wallpaper.id = '';
 						applyWallpaper('deleted');
 					}
+					pushLog('info', '壁纸已删除', { id: id });
 					notify();
+				} else {
+					pushLog('warn', '壁纸删除失败', { id: id, error: payload && payload.error });
 				}
 				return payload;
 			});
@@ -3855,7 +3859,7 @@ window.__ModuleLoader__.load({
 						? h('div', { className: 'aeth-grid', style: { marginTop: '10px' } },
 							files.map(function (item) {
 								var active = wallpaper.source === 'file' && wallpaper.id === item.id;
-								var url = item.url + (A.token ? (item.url.indexOf('?') === -1 ? '?' : '&') + 'token=' + encodeURIComponent(A.token) : '');
+								var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(item.id) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
 								return h('div', { key: item.id, className: 'aeth-wall' + (active ? ' on' : '') },
 									item.kind === 'video'
 										? h('video', { src: url, muted: true, loop: true, autoPlay: true, playsInline: true, preload: 'metadata' })
