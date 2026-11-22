@@ -585,7 +585,7 @@ function WallpaperTab(cfg, mutate, tick, uploadRef, uploadCategory, setUploadCat
 				? h('div', { className: 'aeth-grid', style: { marginTop: '10px' } },
 					files.map(function (item) {
 						var active = wallpaper.source === 'file' && wallpaper.id === item.id;
-						var url = item.url + (A.token ? (item.url.indexOf('?') === -1 ? '?' : '&') + 'token=' + encodeURIComponent(A.token) : '');
+						var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(item.id) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
 						return h('div', { key: item.id, className: 'aeth-wall' + (active ? ' on' : '') },
 							item.kind === 'video'
 								? h('video', { src: url, muted: true, loop: true, autoPlay: true, playsInline: true, preload: 'metadata' })
