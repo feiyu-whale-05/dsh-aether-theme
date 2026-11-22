@@ -139,6 +139,8 @@ function pressFindPane(target) {
 function pressNeutral(pane) {
 	if (!pane) return;
 	pressSoftDown(pane, false);
+	try { pane.removeAttribute('data-aether-press-shade'); } catch (error) { /* ignore */ }
+	A.pressApplied = null;
 	pane.style.transform = 'perspective(' + TILT_PERSPECTIVE + 'px) rotateX(0rad) rotateY(0rad) scale(1)';
 	var old = PRESS.timers.get(pane);
 	if (old) clearTimeout(old);
@@ -170,7 +172,13 @@ function pressApply() {
 	var rotateY = rx * TILT_MAX;
 	var rotateX = -ry * TILT_MAX;
 	pane.style.transformOrigin = 'center center';
-	pane.style.transform = 'perspective(' + TILT_PERSPECTIVE + 'px) rotateX(' + rotateX.toFixed(5) + 'rad) rotateY(' + rotateY.toFixed(5) + 'rad) scale(1)';
+	var css = 'perspective(' + TILT_PERSPECTIVE + 'px) rotateX(' + rotateX.toFixed(5) + 'rad) rotateY(' + rotateY.toFixed(5) + 'rad) scale(1)';
+	pane.style.transform = css;
+	// 内阴影兜底：3D 倾斜在 overflow:hidden 容器里可能看不出来，阴影一定可见
+	if (!pane.getAttribute('data-aether-press-shade')) {
+		pane.setAttribute('data-aether-press-shade', '1');
+	}
+	A.pressApplied = { cls: String(pane.className || '').slice(0, 80), transform: css, at: Date.now() };
 }
 
 function pressOnMove(event) {
