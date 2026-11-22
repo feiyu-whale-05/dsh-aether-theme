@@ -134,9 +134,10 @@ function scanAvatars() {
 			var host = status;
 			try {
 				var parent = status.parentElement;
+				// DevTools 实测：状态行是 button.hE4tRW_root，825×33 —— 宽度上限必须足够大
 				if (parent && parent !== row
-					&& parent.offsetWidth > 0 && parent.offsetWidth < 700
-					&& parent.offsetHeight > 0 && parent.offsetHeight < 90) {
+					&& parent.offsetWidth > 0 && parent.offsetWidth < 1500
+					&& parent.offsetHeight > 10 && parent.offsetHeight < 120) {
 					host = parent;
 				}
 			} catch (error) { /* ignore */ }
