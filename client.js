@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.50';
+		var VERSION = '1.0.51';
 
 		var A = {
 			ctx: null,
@@ -3680,6 +3680,39 @@ window.__ModuleLoader__.load({
 								},
 								style: { flex: '1 1 80px', minWidth: '80px' },
 							}),
+							h('label', {
+								className: 'aeth-btn',
+								title: '上传一张新图片作为该区域背景',
+								style: { cursor: 'pointer', marginLeft: '4px' },
+							}, '上传',
+								h('input', {
+									type: 'file',
+									accept: 'image/*',
+									style: { display: 'none' },
+									onChange: function (event) {
+										var file = event.target.files && event.target.files[0];
+										try { event.target.value = ''; } catch (error) { /* ignore */ }
+										if (!file) return;
+										setStatus('正在上传 ' + String(file.name || '').slice(0, 20) + '…');
+										uploadWallpaper(file, 'region').then(function (uploaded) {
+											try {
+												mutate(function (draft) {
+													draft.backgrounds = draft.backgrounds || {};
+													draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { image: uploaded.id, enabled: true });
+												}, { wallpaper: false });
+												setStatus('已应用：' + pair[1]);
+												setTimeout(function () { setStatus(''); }, 1600);
+											} catch (error) {
+												pushLog('error', '分区背景图保存失败', { key: key, message: String(error && error.message) });
+											}
+										}).catch(function (error) {
+											setStatus('上传失败');
+											setTimeout(function () { setStatus(''); }, 2200);
+											pushLog('error', '分区背景图上传失败', { key: key, message: String(error && error.message) });
+										});
+									},
+								})
+							),
 							h('span', { className: 'aeth-note', style: { minWidth: '40px', textAlign: 'right' } },
 								String(Math.round((item.opacity === undefined ? 0.5 : item.opacity) * 100)) + '%'),
 						);
