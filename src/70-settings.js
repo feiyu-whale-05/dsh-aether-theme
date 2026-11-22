@@ -47,6 +47,8 @@ function AetherSettingsSection() {
 		h('div', { className: 'aeth-head' },
 			h('div', { className: 'aeth-title' }, t('nav.settings')),
 			h('div', { className: 'aeth-sub' }, 'v' + VERSION + (status ? ' · ' + status : '')),
+			A.lastSavedAt ? h('div', { className: 'aeth-note', style: { marginLeft: '10px' } },
+				(A.lastSavedOk === false ? '⚠ 保存失败 ' : '✓ 已保存 ') + new Date(A.lastSavedAt).toLocaleTimeString()) : null,
 			h('div', { style: { marginLeft: 'auto', display: 'flex', gap: '6px' } },
 				h('button', { className: 'aeth-btn', onClick: function () { openSidePanel(); } }, t('settings.openPanel')),
 			),
