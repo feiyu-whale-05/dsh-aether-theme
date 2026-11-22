@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.74';
+		var VERSION = '1.0.75';
 
 		var A = {
 			ctx: null,
@@ -4975,7 +4975,7 @@ window.__ModuleLoader__.load({
 			} catch (error) { /* ignore */ }
 		}
 
-		var STATUS_TEXT = /(完成|运行|思考|用时|耗时|已用|\d+\s*秒|\d+\s*分)/;
+		var STATUS_TEXT = /^(已完成|运行中|思考中|生成中|等待中|用时\s*\d)/;
 
 		/** 在内容容器的祖先范围内找「已完成，用时…」那一行元素。 */
 		function findStatusLine(row) {
@@ -4988,6 +4988,7 @@ window.__ModuleLoader__.load({
 						var el = nodes[i];
 						if (el.querySelector && el.querySelector('.aeth-avatar')) continue;
 						if (el.children && el.children.length > 6) continue;
+						if (el.tagName === 'P' || el.tagName === 'LI' || el.tagName === 'PRE' || el.tagName === 'CODE') continue;
 						var text = (el.textContent || '').trim();
 						if (!text || text.length > 60) continue;
 						if (!STATUS_TEXT.test(text)) continue;
@@ -5023,10 +5024,12 @@ window.__ModuleLoader__.load({
 					try { host.setAttribute(STATUS_MARK, '1'); } catch (error) { /* ignore */ }
 					syncAvatar(host, 'agent', cfg);
 				});
-				// 清理：任何不在状态行里的 agent 头像（包括历史残留 / 正文块上的）
+				// 清理：只保留本轮挂上的 host，其余（历史残留 / 挂错位置）全部移除
+				var keep = [];
+				seenStatus.forEach(function (host) { keep.push(host); });
 				document.querySelectorAll('.aeth-avatar-agent').forEach(function (node) {
 					var host = node.parentElement;
-					if (!host || !host.hasAttribute(STATUS_MARK)) {
+					if (!host || keep.indexOf(host) === -1) {
 						try { node.remove(); } catch (error) { /* ignore */ }
 					}
 				});
