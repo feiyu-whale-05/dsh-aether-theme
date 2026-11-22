@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.51';
+		var VERSION = '1.0.52';
 
 		var A = {
 			ctx: null,
@@ -769,36 +769,38 @@ window.__ModuleLoader__.load({
 			return cfg;
 		}
 		function mergeConfig(saved, defaults) {
-			var base = defaults || defaultConfigFallback();
-			var out = JSON.parse(JSON.stringify(base));
-			if (!saved || typeof saved !== 'object') return out;
-			Object.keys(saved).forEach(function (key) {
-				var value = saved[key];
-				if (value && typeof value === 'object' && !Array.isArray(value) && out[key] && typeof out[key] === 'object' && !Array.isArray(out[key])) {
-					out[key] = Object.assign({}, out[key], value);
-					// modules/regions 这类两级对象再合并一次，防止旧配置缺字段
-					// 旧配置迁移：inputFill 单值 → inputFills 数组
-				if (key === 'glass') {
-					if (out[key].inputFill) {
-						var legacyFill = out[key].inputFill;
-						if (!Array.isArray(out[key].inputFills) || !out[key].inputFills.length) out[key].inputFills = [legacyFill];
-						delete out[key].inputFill;
+			// 始终以「客户端自带默认值」为基线：host 的 defaultAppearance 可能是旧版本
+			// （没有后来新增的字段，例如 backgrounds），只把它当作覆盖层。
+			var out = JSON.parse(JSON.stringify(defaultConfigFallback()));
+			function mergeInto(target, source) {
+				if (!source || typeof source !== 'object') return;
+				Object.keys(source).forEach(function (key) {
+					var value = source[key];
+					if (value && typeof value === 'object' && !Array.isArray(value)
+						&& target[key] && typeof target[key] === 'object' && !Array.isArray(target[key])) {
+						target[key] = Object.assign({}, target[key], value);
+					} else if (value !== undefined) {
+						target[key] = value;
 					}
-					if (typeof out[key].inputFills === 'string') out[key].inputFills = [out[key].inputFills];
-					if (!Array.isArray(out[key].inputFills)) out[key].inputFills = ['frosted'];
+				});
+			}
+			mergeInto(out, defaults);
+			mergeInto(out, saved);
+			// 兼容旧配置：glass.inputFill 单值 → inputFills 数组
+			if (out.glass) {
+				if (out.glass.inputFill) {
+					if (!Array.isArray(out.glass.inputFills) || !out.glass.inputFills.length) out.glass.inputFills = [out.glass.inputFill];
+					delete out.glass.inputFill;
 				}
-				Object.keys(out[key]).forEach(function (sub) {
-						if (value[sub] && typeof value[sub] === 'object' && out[key][sub] && typeof out[key][sub] === 'object') {
-							out[key][sub] = Object.assign({}, out[key][sub], value[sub]);
-						}
-					});
-				} else {
-					out[key] = value;
-				}
-			});
+				if (typeof out.glass.inputFills === 'string') out.glass.inputFills = [out.glass.inputFills];
+				if (!Array.isArray(out.glass.inputFills) || !out.glass.inputFills.length) out.glass.inputFills = ['frosted'];
+			}
+			// 分区背景兜底：旧配置可能只有部分键
+			if (!out.backgrounds || typeof out.backgrounds !== 'object') {
+				out.backgrounds = (defaultConfigFallback().backgrounds);
+			}
 			return out;
 		}
-
 		function defaultConfigFallback() {
 			return {
 				version: 1,
@@ -3688,7 +3690,7 @@ window.__ModuleLoader__.load({
 								h('input', {
 									type: 'file',
 									accept: 'image/*',
-									style: { display: 'none' },
+									style: { position: 'absolute', width: '0', height: '0', opacity: '0', overflow: 'hidden' },
 									onChange: function (event) {
 										var file = event.target.files && event.target.files[0];
 										try { event.target.value = ''; } catch (error) { /* ignore */ }
