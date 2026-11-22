@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.72';
+var VERSION = '1.0.73';
 
 var A = {
 	ctx: null,
@@ -1255,6 +1255,7 @@ function collectDiag() {
 				markedClasses: Array.prototype.map.call(document.querySelectorAll('[data-aether-topbar]'), function (n) { return String(n.className || '').slice(0, 40); }),
 			},
 			avatars: {
+				statusRows: document.querySelectorAll('[data-aether-status]').length,
 				userRows: document.querySelectorAll('[class*="userRow"]').length,
 				agentRows: document.querySelectorAll('[class*="assistantRow"], [class*="assistant"], [class*="markdown"]').length,
 				nodes: document.querySelectorAll('.aeth-avatar').length,
