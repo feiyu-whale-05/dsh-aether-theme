@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.56';
+var VERSION = '1.0.57';
 
 var A = {
 	ctx: null,
@@ -995,7 +995,7 @@ function buildStyleText() {
 		'.aeth-sub { color: var(--dsw-alias-label-caption, #8b95a3); font-size: 12px; }',
 		'.aeth-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }',
 		// 用户气泡左下角装饰
-		'.aeth-bubble-deco { position:absolute; left:-7px; bottom:-9px; font-size:17px; line-height:1; pointer-events:none; z-index:2; filter: drop-shadow(0 2px 5px rgba(0,0,0,.45)); user-select:none; }',
+		'.aeth-bubble-deco { position:absolute; left:6px; bottom:4px; font-size:17px; line-height:1; pointer-events:none; z-index:10; filter: drop-shadow(0 2px 5px rgba(0,0,0,.45)); user-select:none; }',
 		'.aeth-bubble-deco img { width:24px; height:24px; object-fit:contain; display:block; border-radius:6px; }',
 		'.aeth-tab { padding:5px 12px; border-radius:999px; border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.12)); background:transparent; color:var(--dsw-alias-label-secondary,#b6bec9); cursor:pointer; font-size:12px; }',
 		'.aeth-tab.on { color: var(--dsw-alias-label-primary,#fff); border-color: var(--aether-accent,#7aa2ff); background: color-mix(in srgb, var(--aether-accent,#7aa2ff) 16%, transparent); }',
@@ -1217,6 +1217,13 @@ function collectDiag() {
 			pressRunning: Boolean(A.pressRunning),
 			pressTarget: A.pressDebug || null,
 			pressApplied: A.pressApplied || null,
+			bubbleDeco: {
+				bubbles: document.querySelectorAll('[data-message-bubble]').length,
+				decos: document.querySelectorAll('.aeth-bubble-deco').length,
+				enabled: A.cfg && A.cfg.bubbleDecoration ? A.cfg.bubbleDecoration.enabled : null,
+				image: A.cfg && A.cfg.bubbleDecoration ? A.cfg.bubbleDecoration.image : null,
+				text: A.cfg && A.cfg.bubbleDecoration ? A.cfg.bubbleDecoration.text : null,
+			},
 			glow: Boolean(A.cfg && A.cfg.fx && A.cfg.fx.glow !== false),
 			fxModule: moduleOn('fx'),
 		},
