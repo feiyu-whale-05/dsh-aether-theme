@@ -420,7 +420,7 @@ function AdvancedCards(cfg, mutate) {
 						h('input', {
 							type: 'file',
 							accept: 'image/*',
-							style: { display: 'none' },
+							style: { position: 'absolute', width: '0', height: '0', opacity: '0', overflow: 'hidden' },
 							onChange: function (event) {
 								var file = event.target.files && event.target.files[0];
 								try { event.target.value = ''; } catch (error) { /* ignore */ }
