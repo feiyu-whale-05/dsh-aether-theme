@@ -99,7 +99,7 @@ function AetherSettingsSection() {
 		),
 		h('div', { className: 'aeth-card' },
 			h('h3', null, '模块'),
-				[['theme', '主题引擎'], ['wallpaper', '壁纸'], ['glass', '玻璃'], ['widget', t('label.widget')], ['pet', t('label.pet')], ['boot', t('label.boot')]].map(function (pair) {
+				[['theme', '主题引擎'], ['wallpaper', '壁纸'], ['glass', '玻璃'], ['boot', t('label.boot')], ['fx', '粒子与小鱼'], ['inputGlow', '渐变边框']].map(function (pair) {
 					return toggleRow(pair[1], moduleOn(pair[0]), function (value) {
 						mutate(function (draft) { draft.modules[pair[0]].enabled = value; });
 					});
