@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.24';
+		var VERSION = '1.0.25';
 
 		var A = {
 			ctx: null,
@@ -796,7 +796,7 @@ window.__ModuleLoader__.load({
 				},
 				bubble: { official: true, color: '#dbe7ff', opacity: 0.62 },
 				panel: { scale: 1.15 },
-				meteor: { enabled: false, density: 1, hue: 222 },
+				meteor: { enabled: false, density: 1, hue: 222, maxDist: 160 },
 				userMd: { enabled: true },
 				wallpaper: {
 					mode: 'none', source: 'preset', id: '', cssPreset: 'aurora', fit: 'cover',
@@ -811,7 +811,7 @@ window.__ModuleLoader__.load({
 				},
 				pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
 				widget: { position: 'bottom-right', showBalance: true, showToday: true, showTurn: true, warnBelow: 5 },
-				fx: { density: 60, fishCount: 3, whale: true },
+				fx: { density: 60, fishCount: 3, whale: true, glow: true, press: true },
 				boot: { durationMs: 2200, style: 'ripple', skipOnReducedMotion: true },
 				diag: { showOverlay: false, canaryStrikes: 40 },
 			};
@@ -1828,6 +1828,7 @@ window.__ModuleLoader__.load({
 
 			try { syncFx(); } catch (error) { /* ignore */ }
 			try { syncWhale(); } catch (error) { /* ignore */ }
+			try { syncGlowPress(); } catch (error) { /* ignore */ }
 
 			pushLog('info', '外观已应用', {
 				reason: reason,
@@ -2298,6 +2299,7 @@ window.__ModuleLoader__.load({
 				var particles = [];
 				var frame = null;
 				var last = { x: -1, y: -1, t: 0 };
+				var pointer = { x: -9999, y: -9999 };
 				var density = clamp((A.cfg.meteor && A.cfg.meteor.density) || 1, 0.2, 3);
 				var hueBase = clamp((A.cfg.meteor && A.cfg.meteor.hue) || 222, 0, 360);
 
@@ -2333,6 +2335,8 @@ window.__ModuleLoader__.load({
 					var now = performance.now();
 					var x = event.clientX;
 					var y = event.clientY;
+					pointer.x = x;
+					pointer.y = y;
 					var dt = now - last.t;
 					if (last.x >= 0 && dt < 40) {
 						spawn(x, y, x - last.x, y - last.y);
@@ -2342,9 +2346,18 @@ window.__ModuleLoader__.load({
 
 				function tick() {
 					context.clearRect(0, 0, window.innerWidth, window.innerHeight);
+					var maxDist = clamp((A.cfg && A.cfg.meteor && A.cfg.meteor.maxDist) || 160, 40, 900);
+					var maxDistSq = maxDist * maxDist;
 					context.globalCompositeOperation = 'lighter';
 					for (var i = particles.length - 1; i >= 0; i -= 1) {
 						var p = particles[i];
+						// 离鼠标太远立即消散（避免拖尾散成一长条）
+						var ddx = p.x - pointer.x;
+						var ddy = p.y - pointer.y;
+						if (ddx * ddx + ddy * ddy > maxDistSq) {
+							particles.splice(i, 1);
+							continue;
+						}
 						p.x += p.vx;
 						p.y += p.vy;
 						p.vx *= 0.93;
@@ -2797,6 +2810,166 @@ window.__ModuleLoader__.load({
 			whaleResize();
 		}
 
+		// ── 58-glow.js ──────────────────────────────────────────────────────
+		// ── glow / press：参考 dsh-client-ui-aqua 的 spotlight + press ─────────
+		// spotlight：跟随指针的径向光晕（半径 180px，色 rgba(90,215,255,.17)），
+		//            画在 body 顶层、pointer-events:none、screen 混合。
+		// press：悬停主面板/对话框时按指针位置做轻微 3D 倾斜
+		//        （perspective 800px，最大 0.0175rad ≈ 1°，离开 240ms 内回正）。
+		// 两者都只写 transform/位置，不改布局；reduced-motion 下都不启动。
+
+		var GLOW = { el: null, raf: null, x: 0, y: 0, running: false };
+		var GLOW_RADIUS = 180;
+		var GLOW_COLOR = 'rgba(90, 215, 255, 0.17)';
+
+		var PRESS = { raf: null, current: null, running: false, timers: new WeakMap() };
+		var TILT_MAX = 0.0175;
+		var TILT_PERSPECTIVE = 800;
+		var SETTLE_MS = 240;
+
+		function ensureGlow() {
+			if (GLOW.el && document.body.contains(GLOW.el)) return GLOW.el;
+			var el = document.createElement('div');
+			el.id = 'dsh-aether-glow';
+			el.setAttribute('aria-hidden', 'true');
+			el.style.position = 'fixed';
+			el.style.left = '0';
+			el.style.top = '0';
+			el.style.width = (GLOW_RADIUS * 2) + 'px';
+			el.style.height = (GLOW_RADIUS * 2) + 'px';
+			el.style.borderRadius = '50%';
+			el.style.pointerEvents = 'none';
+			el.style.zIndex = '2147482100';
+			el.style.mixBlendMode = 'screen';
+			el.style.opacity = '0';
+			el.style.transition = 'opacity .25s ease';
+			el.style.background = 'radial-gradient(circle at center, ' + GLOW_COLOR + ' 0%, rgba(90, 215, 255, 0.06) 42%, rgba(90, 215, 255, 0) 70%)';
+			el.style.willChange = 'transform';
+			document.body.appendChild(el);
+			GLOW.el = el;
+			return el;
+		}
+
+		function glowApply() {
+			GLOW.raf = null;
+			if (!GLOW.el) return;
+			var half = GLOW_RADIUS;
+			GLOW.el.style.transform = 'translate3d(' + (GLOW.x - half) + 'px, ' + (GLOW.y - half) + 'px, 0)';
+		}
+
+		function glowOnMove(event) {
+			GLOW.x = event.clientX;
+			GLOW.y = event.clientY;
+			if (GLOW.el && GLOW.el.style.opacity !== '1') GLOW.el.style.opacity = '1';
+			if (GLOW.raf === null) GLOW.raf = requestAnimationFrame(glowApply);
+		}
+
+		function startGlow() {
+			if (GLOW.running) return;
+			if (!A.cfg || A.canary.disabled) return;
+			if (!A.cfg.fx || A.cfg.fx.glow === false) return;
+			if (shouldReduceMotion()) return;
+			ensureGlow();
+			window.addEventListener('pointermove', glowOnMove, { passive: true });
+			GLOW.running = true;
+		}
+
+		function stopGlow() {
+			GLOW.running = false;
+			try { window.removeEventListener('pointermove', glowOnMove); } catch (error) { /* ignore */ }
+			if (GLOW.raf !== null) { try { cancelAnimationFrame(GLOW.raf); } catch (error) { /* ignore */ } GLOW.raf = null; }
+			if (GLOW.el) {
+				try { GLOW.el.remove(); } catch (error) { /* ignore */ }
+				GLOW.el = null;
+			}
+		}
+
+		// ── press：悬停面板的轻微 3D 倾斜 ────────────────────────────────────
+		function pressTiltable(pane) {
+			if (!pane) return false;
+			if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+			return true;
+		}
+
+		function pressNeutral(pane) {
+			if (!pane) return;
+			pane.style.transform = 'perspective(' + TILT_PERSPECTIVE + 'px) rotateX(0rad) rotateY(0rad) scale(1)';
+			var old = PRESS.timers.get(pane);
+			if (old) clearTimeout(old);
+			var timer = setTimeout(function () {
+				try {
+					pane.style.removeProperty('transform');
+					pane.style.removeProperty('transform-origin');
+				} catch (error) { /* ignore */ }
+				PRESS.timers.delete(pane);
+			}, SETTLE_MS);
+			PRESS.timers.set(pane, timer);
+		}
+
+		function pressApply() {
+			PRESS.raf = null;
+			var pane = PRESS.current;
+			if (!pane || !pressTiltable(pane)) return;
+			var rect = pane.getBoundingClientRect();
+			if (rect.width === 0 || rect.height === 0) return;
+			var rx = ((GLOW.x - rect.left) / rect.width) * 2 - 1;
+			var ry = ((GLOW.y - rect.top) / rect.height) * 2 - 1;
+			rx = Math.max(-1, Math.min(1, rx));
+			ry = Math.max(-1, Math.min(1, ry));
+			// 鼠标在左上 → 面板左上翘起；保持 ~1°
+			var rotateY = rx * TILT_MAX;
+			var rotateX = -ry * TILT_MAX;
+			pane.style.transformOrigin = 'center center';
+			pane.style.transform = 'perspective(' + TILT_PERSPECTIVE + 'px) rotateX(' + rotateX.toFixed(5) + 'rad) rotateY(' + rotateY.toFixed(5) + 'rad) scale(1)';
+		}
+
+		function pressOnMove(event) {
+			if (!PRESS.running) return;
+			var target = event.target;
+			var pane = target && target.closest ? target.closest('[data-global-panel], [role="dialog"]') : null;
+			if (pane !== PRESS.current) {
+				if (PRESS.current) pressNeutral(PRESS.current);
+				PRESS.current = pane;
+			}
+			if (!pane) return;
+			GLOW.x = event.clientX;
+			GLOW.y = event.clientY;
+			if (PRESS.raf === null) PRESS.raf = requestAnimationFrame(pressApply);
+		}
+
+		function pressOnLeave() {
+			if (PRESS.current) {
+				pressNeutral(PRESS.current);
+				PRESS.current = null;
+			}
+		}
+
+		function startPress() {
+			if (PRESS.running) return;
+			if (!A.cfg || A.canary.disabled) return;
+			if (!A.cfg.fx || A.cfg.fx.press === false) return;
+			if (shouldReduceMotion()) return;
+			document.addEventListener('pointermove', pressOnMove, { passive: true });
+			document.addEventListener('pointerleave', pressOnLeave, { passive: true });
+			window.addEventListener('blur', pressOnLeave, { passive: true });
+			PRESS.running = true;
+		}
+
+		function stopPress() {
+			PRESS.running = false;
+			try { document.removeEventListener('pointermove', pressOnMove); } catch (error) { /* ignore */ }
+			try { document.removeEventListener('pointerleave', pressOnLeave); } catch (error) { /* ignore */ }
+			try { window.removeEventListener('blur', pressOnLeave); } catch (error) { /* ignore */ }
+			pressOnLeave();
+			if (PRESS.raf !== null) { try { cancelAnimationFrame(PRESS.raf); } catch (error) { /* ignore */ } PRESS.raf = null; }
+		}
+
+		function syncGlowPress() {
+			var on = Boolean(A.cfg && !A.canary.disabled && moduleOn('fx') && !shouldReduceMotion());
+			if (!on || !A.cfg.fx || A.cfg.fx.glow === false) stopGlow(); else startGlow();
+			if (!on || !A.cfg.fx || A.cfg.fx.press === false) stopPress(); else startPress();
+		}
+
 		// ── 60-panel.js ─────────────────────────────────────────────────────
 		// ── panel：左侧边栏面板 —— 全功能控制台 ─────────────────────────────────
 		// 分区：外观 / 壁纸 / 玻璃 / 像素 / 模块 / 主题包 / 诊断。
@@ -3179,6 +3352,17 @@ window.__ModuleLoader__.load({
 						mutate(function (draft) { draft.fx = Object.assign({}, draft.fx || {}, { density: value }); }, { wallpaper: false });
 						setTimeout(function () { try { syncFx(); } catch (error) { /* ignore */ } }, 60);
 					}),
+					toggleRow('指针光晕（Aqua spotlight）', (cfg.fx || {}).glow !== false, function (value) {
+						mutate(function (draft) { draft.fx = Object.assign({}, draft.fx || {}, { glow: value }); }, { wallpaper: false });
+						setTimeout(function () { try { syncGlowPress(); } catch (error) { /* ignore */ } }, 60);
+					}),
+					toggleRow('悬停下压（3D 倾斜）', (cfg.fx || {}).press !== false, function (value) {
+						mutate(function (draft) { draft.fx = Object.assign({}, draft.fx || {}, { press: value }); }, { wallpaper: false });
+						setTimeout(function () { try { syncGlowPress(); } catch (error) { /* ignore */ } }, 60);
+					}),
+					sliderRow('流星消散距离（超过即消失）', (meteor.maxDist === undefined ? 160 : meteor.maxDist), 40, 600, 10, function (value) {
+						mutate(function (draft) { draft.meteor = Object.assign({}, draft.meteor || {}, { maxDist: value }); }, { wallpaper: false });
+					}, 'px'),
 					toggleRow('粒子鲸鱼（品牌鱼剪影）', (cfg.fx || {}).whale !== false, function (value) {
 						mutate(function (draft) { draft.fx = Object.assign({}, draft.fx || {}, { whale: value }); }, { wallpaper: false });
 						setTimeout(function () { try { syncWhale(); } catch (error) { /* ignore */ } }, 60);
@@ -4120,6 +4304,7 @@ window.__ModuleLoader__.load({
 							try { stopUserMarkdown(); } catch (error) { /* ignore */ }
 							try { stopFx(); } catch (error) { /* ignore */ }
 							try { whaleStop(); } catch (error) { /* ignore */ }
+							try { stopGlow(); stopPress(); } catch (error) { /* ignore */ }
 							try { if (A.themeOff) A.themeOff(); } catch (error) { /* ignore */ }
 							try { if (A.mediaOff) A.mediaOff(); } catch (error) { /* ignore */ }
 							try { if (A.motionOff) A.motionOff(); } catch (error) { /* ignore */ }
