@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.38';
+		var VERSION = '1.0.39';
 
 		var A = {
 			ctx: null,
@@ -2959,19 +2959,18 @@ window.__ModuleLoader__.load({
 			return true;
 		}
 
+		// 下压只作用于「对话框」和「侧栏」：
+		//   · 主面板（设置页/图片预览/插件列表…= [data-global-panel]）不倾斜
+		//   · 聊天输入卡片、消息气泡等也都不碰
 		var PRESS_PANE_SELECTOR = [
-			'[data-global-panel]',
 			'[role="dialog"]',
 			'[aria-modal="true"]',
-			'[data-dsh-surface]',
 			'[class*="dialog"]',
 			'[class*="Dialog"]',
 			'[class*="modal"]',
 			'[class*="Modal"]',
 			'[class*="sheet"]',
 			'[class*="Sheet"]',
-			'[class*="overlay"]',
-			'[class*="Overlay"]',
 			'[class*="sidebarCol"]',
 			'[class*="sidebar"]',
 		].join(', ');
@@ -2996,6 +2995,12 @@ window.__ModuleLoader__.load({
 				var depth = 0;
 				while (node && node !== document.body && depth < 10) {
 					var style = window.getComputedStyle(node);
+					// 排除主面板（含设置页/图片预览/插件列表）与插件自己的面板
+					if (node.hasAttribute('data-global-panel') || node.hasAttribute('data-aether-input-host') || (node.closest && node.closest('.aeth-root'))) {
+						node = node.parentElement;
+						depth += 1;
+						continue;
+					}
 					if ((style.position === 'fixed' || style.position === 'absolute')
 						&& node.offsetWidth > 360 && node.offsetHeight > 240) {
 						return node;
