@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.66';
+		var VERSION = '1.0.67';
 
 		var A = {
 			ctx: null,
@@ -947,15 +947,12 @@ window.__ModuleLoader__.load({
 				if (document.querySelectorAll('[data-aether-topbar]').length) return -1; // 已标记
 				var tabs = document.querySelector('[data-conversation-tabs]');
 				if (!tabs) return 0;
+				// 只标记标签行本身（.tabs）：再往上是 header（含标题行），标记它会连标题一起盖住
 				var node = tabs.parentElement;
-				var depth = 0;
-				while (node && depth < 2) {
-					// 防御：绝不标记包含整窗内容的 frame 级容器
-					if (node.id === 'root' || node.hasAttribute('data-aether-frame')) break;
+				if (node && node.id !== 'root' && !node.hasAttribute('data-aether-frame')
+					&& !node.querySelector(':scope > [data-conversation-header-corner], :scope > nav, :scope > [class*="headerActions"]')) {
 					node.setAttribute('data-aether-topbar', '1');
 					marked += 1;
-					node = node.parentElement;
-					depth += 1;
 				}
 			} catch (error) { /* ignore */ }
 			return marked;
