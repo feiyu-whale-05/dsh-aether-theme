@@ -376,6 +376,23 @@ function AdvancedCards(cfg, mutate) {
 						},
 						style: { width: '34px', height: '24px', border: 'none', background: 'transparent', opacity: item.enabled ? 1 : 0.4 },
 					}),
+					h('select', {
+						value: item.image || '',
+						disabled: !item.enabled,
+						onChange: function (event) {
+							mutate(function (draft) {
+								draft.backgrounds = draft.backgrounds || {};
+								draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { image: event.target.value });
+							}, { wallpaper: false });
+						},
+						style: { maxWidth: '140px', opacity: item.enabled ? 1 : 0.4 },
+					}, [h('option', { value: '', key: '' }, '无背景图')].concat(
+						(A.host.wallpapers || [])
+							.filter(function (w) { return !w.kind || w.kind === 'image'; })
+							.map(function (w) {
+								return h('option', { value: w.id, key: w.id }, String(w.name || w.id).slice(0, 14));
+							})
+					)),
 					h('input', {
 						type: 'range', min: 0, max: 1, step: 0.01,
 						value: item.opacity === undefined ? 0.5 : item.opacity,
