@@ -672,7 +672,6 @@ function ModulesTab(cfg, mutate) {
 		['wallpaper', t('title.wallpaper')],
 		['glass', t('title.glass')],
 		['pixel', t('title.pixel')],
-		['widget', t('label.widget')],
 		['boot', t('label.boot')],
 		['diag', t('section.diag')],
 		['inputGlow', '渐变边框（输入态）'],
