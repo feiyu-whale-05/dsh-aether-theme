@@ -4,6 +4,34 @@
 
 // 宿主把 data-message-bubble 作为 prop 传给了 UserMessageBubble 组件，并不会落到 DOM 上，
 // 所以要用 CSS Modules 的类名特征来定位用户消息栈。
+/** 独立的装饰观察器：聊天区渲染与 usermd 开关无关，装饰要自己盯 DOM。 */
+var bubbleDecoObserver = null;
+var bubbleDecoTimer = null;
+
+function scheduleBubbleDecoScan() {
+	if (bubbleDecoTimer) return;
+	bubbleDecoTimer = setTimeout(function () {
+		bubbleDecoTimer = null;
+		try { scanBubbleDeco(); } catch (error) { /* ignore */ }
+	}, 120);
+}
+
+function startBubbleDeco() {
+	try {
+		if (bubbleDecoObserver || !document.body) return;
+		bubbleDecoObserver = new MutationObserver(scheduleBubbleDecoScan);
+		bubbleDecoObserver.observe(document.body, { childList: true, subtree: true });
+		scheduleBubbleDecoScan();
+	} catch (error) { /* ignore */ }
+}
+
+function stopBubbleDeco() {
+	try { if (bubbleDecoObserver) bubbleDecoObserver.disconnect(); } catch (error) { /* ignore */ }
+	bubbleDecoObserver = null;
+	if (bubbleDecoTimer) { clearTimeout(bubbleDecoTimer); bubbleDecoTimer = null; }
+	clearBubbleDeco();
+}
+
 var BUBBLE_DECO_SELECTOR = [
 	'[data-message-bubble]',
 	'[class*="_userStack"]',
