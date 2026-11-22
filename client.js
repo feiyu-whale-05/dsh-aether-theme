@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.29';
+		var VERSION = '1.0.30';
 
 		var A = {
 			ctx: null,
@@ -978,10 +978,12 @@ window.__ModuleLoader__.load({
 				'html[data-dsh-aether] [data-aether-input-host] {',
 				'  background-color: var(--aether-chrome-fill) !important;',
 				'}',
-				// Windows 标题栏（「应用/编辑」那行）：宿主 .frame 与 .frame::before 各铺了一层
-				// 同一半透明色，叠起来比侧栏深一倍。把 ::before 那层设为透明，只留 frame 一层。
+				// Windows 标题栏（「应用/编辑」那行）：
+				// 侧栏 = frame + sidebarCol 两层半透明（≈0.75），标题栏只有 frame 一层（0.5）会显得浅。
+				// 这里恢复 ::before 的一层，并额外叠 --aether-titlebar-extra（默认 0.08）的暗色，
+				// 让标题栏与侧栏同档、略深一点点。
 				'html[data-windows-titlebar][data-dsh-aether] [data-aether-frame]::before {',
-				'  background: transparent !important;',
+				'  background: linear-gradient(rgba(0, 0, 0, var(--aether-titlebar-extra, .08)), rgba(0, 0, 0, var(--aether-titlebar-extra, .08))), var(--aether-chrome-fill) !important;',
 				'}',
 				// 顶栏（Windows 标题栏带「应用/编辑」那行）：frame 背景已由 sidebar-fill 控制，
 				// 这里把 sidebar-fill 直接绑到同一个 chrome 变量
@@ -2831,7 +2833,7 @@ window.__ModuleLoader__.load({
 		var GLOW_COLOR = 'rgba(90, 215, 255, 0.17)';
 
 		var PRESS = { raf: null, current: null, running: false, timers: new WeakMap() };
-		var TILT_MAX = 0.0175;
+		var TILT_MAX = 0.031;
 		var TILT_PERSPECTIVE = 800;
 		var SETTLE_MS = 240;
 
@@ -2903,10 +2905,15 @@ window.__ModuleLoader__.load({
 			'[data-global-panel]',
 			'[role="dialog"]',
 			'[aria-modal="true"]',
+			'[data-dsh-surface]',
 			'[class*="dialog"]',
 			'[class*="Dialog"]',
 			'[class*="modal"]',
 			'[class*="Modal"]',
+			'[class*="sheet"]',
+			'[class*="Sheet"]',
+			'[class*="overlay"]',
+			'[class*="Overlay"]',
 			'[class*="sidebarCol"]',
 			'[class*="sidebar"]',
 		].join(', ');
@@ -2970,6 +2977,14 @@ window.__ModuleLoader__.load({
 			if (!PRESS.running) return;
 			var target = event.target;
 			var pane = pressFindPane(target);
+			if (pane) {
+				A.pressDebug = {
+					tag: pane.tagName ? pane.tagName.toLowerCase() : '?',
+					cls: String(pane.className || '').slice(0, 120),
+					role: pane.getAttribute ? (pane.getAttribute('role') || '') : '',
+					position: (function () { try { return window.getComputedStyle(pane).position; } catch (error) { return ''; } })(),
+				};
+			}
 			if (pane !== PRESS.current) {
 				if (PRESS.current) pressNeutral(PRESS.current);
 				PRESS.current = pane;
@@ -2996,10 +3011,12 @@ window.__ModuleLoader__.load({
 			document.addEventListener('pointerleave', pressOnLeave, { passive: true });
 			window.addEventListener('blur', pressOnLeave, { passive: true });
 			PRESS.running = true;
+			A.pressRunning = true;
 		}
 
 		function stopPress() {
 			PRESS.running = false;
+			A.pressRunning = false;
 			try { document.removeEventListener('pointermove', pressOnMove); } catch (error) { /* ignore */ }
 			try { document.removeEventListener('pointerleave', pressOnLeave); } catch (error) { /* ignore */ }
 			try { window.removeEventListener('blur', pressOnLeave); } catch (error) { /* ignore */ }
@@ -3723,6 +3740,9 @@ window.__ModuleLoader__.load({
 						h('b', null, '#root'), h('span', null, String(anchors.root)),
 						h('b', null, 'data-platform'), h('span', null, String(anchors.platform)),
 						h('b', null, '配置文件'), h('span', null, (A.host.diag && A.host.diag.configFile) || '~/.dsh/aether-theme/config.json'),
+						h('b', null, '下压状态'), h('span', { className: A.pressRunning ? 'aeth-ok' : 'aeth-bad' },
+							A.pressRunning ? ('监听中（' + Math.round(TILT_MAX / 0.01745 * 10) / 10 + '° 倾斜）') : '未启动'),
+						h('b', null, '下压目标'), h('span', null, A.pressDebug ? (A.pressDebug.tag + '.' + (A.pressDebug.cls.split(' ')[0] || '') + (A.pressDebug.position ? ' [' + A.pressDebug.position + ']' : '')) : '（把指针移到对话框上再看）'),
 						h('b', null, '流星尾缀'), h('span', { className: A.meteorDebug ? 'aeth-ok' : 'aeth-bad' },
 							A.meteorDebug ? 'canvas 已挂载（' + A.meteorDebug.canvas.width + '×' + A.meteorDebug.canvas.height + '）'
 								: (!A.meteorMounted ? '组件未渲染'
