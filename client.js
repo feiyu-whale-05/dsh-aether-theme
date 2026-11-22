@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.52';
+		var VERSION = '1.0.53';
 
 		var A = {
 			ctx: null,
@@ -3613,6 +3613,7 @@ window.__ModuleLoader__.load({
 					h('h3', null, '分区背景（每块可单独配置）'),
 					h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
 						'开启后该区域使用自己的颜色与不透明度；关闭则跟随「外壳暗度」统一值。'),
+					A.bgUploadState ? h('div', { className: 'aeth-note', style: { color: '#9cc0f2', marginBottom: '8px' } }, A.bgUploadState) : null,
 					[
 						['sidebar', '侧边栏'],
 						['input', '对话页输入框'],
@@ -3695,21 +3696,26 @@ window.__ModuleLoader__.load({
 										var file = event.target.files && event.target.files[0];
 										try { event.target.value = ''; } catch (error) { /* ignore */ }
 										if (!file) return;
-										setStatus('正在上传 ' + String(file.name || '').slice(0, 20) + '…');
+										A.bgUploadState = '正在上传 ' + String(file.name || '').slice(0, 20) + '…';
+										notify();
+										pushLog('info', '分区背景图上传开始', { key: key, name: String(file.name || '').slice(0, 60), size: file.size });
 										uploadWallpaper(file, 'region').then(function (uploaded) {
 											try {
 												mutate(function (draft) {
 													draft.backgrounds = draft.backgrounds || {};
 													draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { image: uploaded.id, enabled: true });
 												}, { wallpaper: false });
-												setStatus('已应用：' + pair[1]);
-												setTimeout(function () { setStatus(''); }, 1600);
+												A.bgUploadState = '已应用：' + pair[1];
+												notify();
+												setTimeout(function () { A.bgUploadState = ''; notify(); }, 1800);
 											} catch (error) {
+												A.bgUploadState = '保存失败';
+												notify();
 												pushLog('error', '分区背景图保存失败', { key: key, message: String(error && error.message) });
 											}
 										}).catch(function (error) {
-											setStatus('上传失败');
-											setTimeout(function () { setStatus(''); }, 2200);
+											A.bgUploadState = '上传失败：' + String(error && error.message || '').slice(0, 40);
+											notify();
 											pushLog('error', '分区背景图上传失败', { key: key, message: String(error && error.message) });
 										});
 									},
@@ -4106,7 +4112,13 @@ window.__ModuleLoader__.load({
 						h('button', {
 							className: 'aeth-btn',
 							onClick: function () {
-								if (typeof METEOR === 'undefined' || !METEOR.running) { setStatus('流星未启动（检查开关/减弱动效）'); setTimeout(function () { setStatus(''); }, 1800); return; }
+								if (typeof METEOR === 'undefined' || !METEOR.running) {
+									A.bgUploadState = '流星未启动（检查开关/减弱动效）';
+									notify();
+									pushLog('warn', '测试流星：未启动', { running: typeof METEOR !== 'undefined' ? METEOR.running : null });
+									setTimeout(function () { A.bgUploadState = ''; notify(); }, 1800);
+									return;
+								}
 								var cx = Math.round(window.innerWidth / 2);
 								var cy = Math.round(window.innerHeight / 2);
 								METEOR.pointer.x = cx;
