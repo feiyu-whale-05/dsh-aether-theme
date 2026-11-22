@@ -171,6 +171,7 @@ var apply = function apply(ctx) {
 
 	// 2.35) 气泡装饰观察器
 	try { startBubbleDeco(); } catch (error) { /* ignore */ }
+	try { startAvatars(); } catch (error) { /* ignore */ }
 
 	// 2.4) 遮罩层清理（设置/图片查看的黑底直接删元素）
 	try { removeMaskLayers(); watchMaskLayers(); } catch (error) { /* ignore */ }
@@ -206,6 +207,7 @@ var apply = function apply(ctx) {
 					try { stopGlow(); stopPress(); } catch (error) { /* ignore */ }
 					try { stopMeteor(); } catch (error) { /* ignore */ }
 					try { stopBubbleDeco(); } catch (error) { /* ignore */ }
+					try { stopAvatars(); } catch (error) { /* ignore */ }
 					try { if (A.themeOff) A.themeOff(); } catch (error) { /* ignore */ }
 					try { if (A.mediaOff) A.mediaOff(); } catch (error) { /* ignore */ }
 					try { if (A.motionOff) A.motionOff(); } catch (error) { /* ignore */ }
