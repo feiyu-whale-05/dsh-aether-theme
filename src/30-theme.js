@@ -477,6 +477,7 @@ function applyAppearance(reason) {
 	try { syncWhale(); } catch (error) { /* ignore */ }
 	try { syncGlowPress(); } catch (error) { /* ignore */ }
 	try { syncMeteor(); } catch (error) { /* ignore */ }
+	try { scanBubbleDeco(); } catch (error) { /* ignore */ }
 
 	pushLog('info', '外观已应用', {
 		reason: reason,
