@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.12';
+		var VERSION = '1.0.13';
 
 		var A = {
 			ctx: null,
@@ -723,8 +723,13 @@ window.__ModuleLoader__.load({
 		/** 一次性迁移：把旧默认的磨砂值（bg 8 / glass 18）归零——host 端可能缓存着旧配置。 */
 		function migrateBlurOff(cfg) {
 			try {
-				if (!cfg || !cfg.glass) return cfg;
-				var dirty = false;
+				if (!cfg || typeof cfg !== 'object') return cfg;
+				if (!Array.isArray(cfg.migrations)) cfg.migrations = [];
+				// 已经迁移过就不再动用户配置（防止把用户手动调的值又改回去）
+				if (cfg.migrations.indexOf('v2-defaults') !== -1) return cfg;
+				cfg.migrations.push('v2-defaults');
+				if (!cfg.glass) { saveConfig('migrate-marker'); return cfg; }
+				var dirty = true;
 				if (cfg.glass.backgroundBlur === 8) { cfg.glass.backgroundBlur = 0; dirty = true; }
 				if (cfg.glass.glassBlur === 18) { cfg.glass.glassBlur = 0; dirty = true; }
 				// 壁纸压暗遮罩：旧默认 0.32 视为「没调过」，归零（去灰罩）
@@ -817,10 +822,14 @@ window.__ModuleLoader__.load({
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ appearance: A.cfg }),
 			}).then(function (result) {
+				A.lastSavedAt = Date.now();
+				A.lastSavedOk = true;
 				pushLog('info', '配置已保存', { reason: reason || 'save' });
 				try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(A.cfg)); } catch (error) { /* 端口变了 localStorage 不可用也没关系 */ }
 				return result;
 			}).catch(function (error) {
+				A.lastSavedAt = Date.now();
+				A.lastSavedOk = false;
 				// Host 挂了也要能用：localStorage 兜底（同端口内刷新不丢）
 				try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(A.cfg)); } catch (ignored) { /* ignore */ }
 				pushLog('warn', '配置保存失败（已写 localStorage 兜底）', { message: String(error && error.message) });
@@ -1038,7 +1047,7 @@ window.__ModuleLoader__.load({
 				'  50% { box-shadow: 0 0 0 3px rgba(106, 89, 254, .30), 0 0 26px rgba(106, 89, 254, .20) !important; }',
 				'}',
 				// 面板/设置页内容放大 + 按钮文字色
-				'html[data-dsh-aether] .aeth-root { padding: 16px 18px 24px; max-width: 980px; margin: 0 auto; color: var(--dsw-alias-label-primary, #e8eaed); }',
+				'html[data-dsh-aether] .aeth-root { padding: 16px 22px 28px; max-width: min(1320px, 94vw); width: 100%; margin: 0 auto; box-sizing: border-box; color: var(--dsw-alias-label-primary, #e8eaed); }',
 				'html[data-dsh-aether] .aeth-root[data-aeth-surface="panel"] { zoom: var(--aether-panel-scale, 1.15); }',
 				'.aeth-root .aeth-btn { color: var(--dsw-alias-label-primary, #e8eaed) !important; }',
 				'.aeth-root .aeth-btn.primary { color: #0b0f16 !important; font-weight: 600; }',
@@ -2581,6 +2590,10 @@ window.__ModuleLoader__.load({
 				h('div', { className: 'aeth-head' },
 					h('div', { className: 'aeth-title' }, t('panel.title')),
 					h('div', { className: 'aeth-sub' }, t('panel.subtitle') + ' · v' + VERSION + (A.canary.disabled ? ' · ' + t('safe.mode') : '')),
+					A.lastSavedAt
+						? h('div', { className: 'aeth-note', style: { marginLeft: '10px' }, title: '配置已落盘到 Host 的 config.json（每次写前备份）' },
+							(A.lastSavedOk === false ? '⚠ 保存失败 ' : '✓ 已保存 ') + new Date(A.lastSavedAt).toLocaleTimeString())
+						: null,
 					h('div', { style: { marginLeft: 'auto', display: 'flex', gap: '6px' } },
 						h('button', { className: 'aeth-btn', onClick: function () { loadState().then(function () { applyAppearance('refresh'); applyWallpaper('refresh'); }).catch(function () { setStatus(t('state.error')); }); } }, t('action.refresh')),
 						h('button', { className: 'aeth-btn danger', onClick: doReset }, t('action.reset')),
@@ -3048,6 +3061,7 @@ window.__ModuleLoader__.load({
 						h('b', null, 'reduced-motion'), h('span', null, String(shouldReduceMotion())),
 						h('b', null, '#root'), h('span', null, String(anchors.root)),
 						h('b', null, 'data-platform'), h('span', null, String(anchors.platform)),
+						h('b', null, '配置文件'), h('span', null, (A.host.diag && A.host.diag.configFile) || '~/.dsh/aether-theme/config.json'),
 					),
 					h('div', { className: 'aeth-row', style: { marginTop: '10px' } },
 						h('button', { className: 'aeth-btn primary', onClick: exportDiag }, '导出 diag.json'),
@@ -3125,6 +3139,8 @@ window.__ModuleLoader__.load({
 				h('div', { className: 'aeth-head' },
 					h('div', { className: 'aeth-title' }, t('nav.settings')),
 					h('div', { className: 'aeth-sub' }, 'v' + VERSION + (status ? ' · ' + status : '')),
+					A.lastSavedAt ? h('div', { className: 'aeth-note', style: { marginLeft: '10px' } },
+						(A.lastSavedOk === false ? '⚠ 保存失败 ' : '✓ 已保存 ') + new Date(A.lastSavedAt).toLocaleTimeString()) : null,
 					h('div', { style: { marginLeft: 'auto', display: 'flex', gap: '6px' } },
 						h('button', { className: 'aeth-btn', onClick: function () { openSidePanel(); } }, t('settings.openPanel')),
 					),
