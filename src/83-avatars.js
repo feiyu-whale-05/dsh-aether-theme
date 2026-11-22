@@ -127,10 +127,12 @@ function scanAvatars() {
 		document.querySelectorAll(AVATAR_AGENT_SELECTOR).forEach(function (row) {
 			if (row.parentElement && row.parentElement.closest(AVATAR_AGENT_SELECTOR)) return;
 			var status = findStatusLine(row) || row;     // 状态行优先，找不到就退回内容容器
-			if (seenStatus.indexOf(status) !== -1) return;
-			seenStatus.push(status);
-			try { status.setAttribute(STATUS_MARK, '1'); } catch (error) { /* ignore */ }
-			syncAvatar(status, 'agent', cfg);
+			// 最深命中可能是 inline 的 <span>（定位不稳定），头像挂到它的块级容器上
+			var host = (status.closest && status.closest('button, summary, div, a')) || status;
+			if (seenStatus.indexOf(host) !== -1) return;
+			seenStatus.push(host);
+			try { host.setAttribute(STATUS_MARK, '1'); } catch (error) { /* ignore */ }
+			syncAvatar(host, 'agent', cfg);
 		});
 		// 清理：任何不在状态行里的 agent 头像（包括历史残留 / 正文块上的）
 		document.querySelectorAll('.aeth-avatar-agent').forEach(function (node) {
