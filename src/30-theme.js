@@ -478,6 +478,7 @@ function applyAppearance(reason) {
 	try { syncGlowPress(); } catch (error) { /* ignore */ }
 	try { syncMeteor(); } catch (error) { /* ignore */ }
 	try { scanBubbleDeco(); } catch (error) { /* ignore */ }
+	try { scanAvatars(); } catch (error) { /* ignore */ }
 
 	pushLog('info', '外观已应用', {
 		reason: reason,
