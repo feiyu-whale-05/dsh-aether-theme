@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.27';
+var VERSION = '1.0.28';
 
 var A = {
 	ctx: null,
@@ -435,29 +435,41 @@ function migrateBlurOff(cfg) {
 	try {
 		if (!cfg || typeof cfg !== 'object') return cfg;
 		if (!Array.isArray(cfg.migrations)) cfg.migrations = [];
-		// 已经迁移过就不再动用户配置（防止把用户手动调的值又改回去）
-		if (cfg.migrations.indexOf('v2-defaults') !== -1) return cfg;
-		cfg.migrations.push('v2-defaults');
-		if (!cfg.glass) { saveConfig('migrate-marker'); return cfg; }
-		var dirty = true;
-		if (cfg.glass.backgroundBlur === 8) { cfg.glass.backgroundBlur = 0; dirty = true; }
-		if (cfg.glass.glassBlur === 18) { cfg.glass.glassBlur = 0; dirty = true; }
-		// 壁纸压暗遮罩：旧默认 0.32 视为「没调过」，归零（去灰罩）
-		if (cfg.wallpaper && cfg.wallpaper.dim === 0.32) { cfg.wallpaper.dim = 0; dirty = true; }
-		// 对话主区透明化：旧默认 0.52 视为「没调过」，归零（去灰色遮罩）
-		if (cfg.glass && cfg.glass.regions && cfg.glass.regions.base === 0.52) { cfg.glass.regions.base = 0; dirty = true; }
-		// 顶栏/侧栏/输入框统一底色：旧默认值一次性对齐到 0.55
-		if (cfg.glass && cfg.glass.regions) {
-			if (cfg.glass.regions.sidebar === 0.44) { cfg.glass.regions.sidebar = 0.55; dirty = true; }
-			if (cfg.glass.regions.layers === 0.5) { cfg.glass.regions.layers = 0.55; dirty = true; }
-			if (cfg.glass.regions.input === 0.58) { cfg.glass.regions.input = 0.55; dirty = true; }
+		var dirty = false;
+		// v2-defaults：早期默认值（磨砂/遮罩/透明度）一次性归零，尊重用户后续手动修改
+		if (cfg.migrations.indexOf('v2-defaults') === -1) {
+			cfg.migrations.push('v2-defaults');
+			dirty = true;
+			if (cfg.glass) {
+				if (cfg.glass.backgroundBlur === 8) cfg.glass.backgroundBlur = 0;
+				if (cfg.glass.glassBlur === 18) cfg.glass.glassBlur = 0;
+				if (cfg.glass.regions) {
+					if (cfg.glass.regions.base === 0.52) cfg.glass.regions.base = 0;
+					if (cfg.glass.regions.sidebar === 0.44) cfg.glass.regions.sidebar = 0.55;
+					if (cfg.glass.regions.layers === 0.5) cfg.glass.regions.layers = 0.55;
+					if (cfg.glass.regions.input === 0.58) cfg.glass.regions.input = 0.55;
+				}
+				if (cfg.glass.inputFillOpacity === 0.6) cfg.glass.inputFillOpacity = 0.55;
+				if (cfg.glass.inputFill && !cfg.glass.inputFills) {
+					cfg.glass.inputFills = [cfg.glass.inputFill];
+					delete cfg.glass.inputFill;
+				}
+			}
+			if (cfg.wallpaper && cfg.wallpaper.dim === 0.32) cfg.wallpaper.dim = 0;
 		}
-		if (cfg.glass && cfg.glass.inputFillOpacity === 0.6) { cfg.glass.inputFillOpacity = 0.55; dirty = true; }
-		if (dirty) saveConfig('migrate-blur');
+		// v3-aqua-chrome：外壳磨砂对齐 Aqua（blur 14px / 暗度 50%）
+		if (cfg.migrations.indexOf('v3-aqua-chrome') === -1) {
+			cfg.migrations.push('v3-aqua-chrome');
+			dirty = true;
+			if (cfg.glass) {
+				if (!cfg.glass.chromeBlur || cfg.glass.chromeBlur === 0) cfg.glass.chromeBlur = 14;
+				if (cfg.glass.chromeOpacity === 0.55) cfg.glass.chromeOpacity = 0;
+			}
+		}
+		if (dirty) saveConfig('migrate');
 	} catch (error) { /* ignore */ }
 	return cfg;
 }
-
 function mergeConfig(saved, defaults) {
 	var base = defaults || defaultConfigFallback();
 	var out = JSON.parse(JSON.stringify(base));
@@ -517,7 +529,7 @@ function defaultConfigFallback() {
 			glassBlur: 0, backgroundBlur: 0, saturation: 1.15, border: 0.14,
 			regions: { base: 0, sidebar: 0.55, layers: 0.55, menu: 0.74, input: 0.55, bubble: 0.5 },
 			inputFills: ['frosted'], inputFillOpacity: 0.55,
-			chromeOpacity: 0.55, chromeBlur: 0,
+			chromeOpacity: 0, chromeBlur: 14,
 		},
 		pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
 		widget: { position: 'bottom-right', showBalance: true, showToday: true, showTurn: true, warnBelow: 5 },
@@ -663,16 +675,18 @@ function buildStyleText() {
 		// 默认磨砂 0（纯半透明），调高时三处一起变磨砂。
 		// 只有显式打开磨砂（chromeBlur > 0）时才加 backdrop-filter；
 		// 否则悬空属性会创建 containing block，破坏侧栏里 fixed 按钮的定位。
-		'html[data-dsh-aether][data-chrome-blur="on"] [data-global-panel],',
-		'html[data-dsh-aether][data-chrome-blur="on"] [data-rightbar-col],',
+		// 三处外壳统一磨砂：侧栏列 / 顶栏 header / 输入框卡片，同一 blur 值（Aqua 默认 14px）
 		'html[data-dsh-aether][data-chrome-blur="on"] [class*="sidebarCol"],',
-		'html[data-dsh-aether][data-chrome-blur="on"] [class*="sidebar"],',
-		'html[data-dsh-aether][data-chrome-blur="on"] [class*="Sidebar"],',
+		'html[data-dsh-aether][data-chrome-blur="on"] header,',
 		'html[data-dsh-aether][data-chrome-blur="on"] [data-aether-input-host] {',
-		'  backdrop-filter: blur(var(--aether-chrome-blur)) !important;',
+		'  backdrop-filter: blur(var(--aether-chrome-blur, 14px)) saturate(1.4) !important;',
 		'}',
+		// 侧栏里出现 dialog 时撤掉磨砂（避免给 fixed 元素建包含块，Aqua 同款处理）
+		'html[data-dsh-aether] [class*="sidebarCol"]:has([role="dialog"]) { backdrop-filter: none !important; }',
 		// 输入框卡片底色与侧栏/顶栏用同一个变量（宿主卡片自带 #14161B99，统一覆盖）
-		'html[data-dsh-aether] [data-aether-input-host] {',
+		'html[data-dsh-aether] [data-aether-input-host],',
+		'html[data-dsh-aether] header,',
+		'html[data-dsh-aether] [class*="sidebarCol"] {',
 		'  background-color: var(--aether-chrome-fill) !important;',
 		'}',
 		// 顶栏（Windows 标题栏带「应用/编辑」那行）：frame 背景已由 sidebar-fill 控制，
