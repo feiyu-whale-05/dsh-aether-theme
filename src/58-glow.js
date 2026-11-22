@@ -10,7 +10,7 @@ var GLOW_RADIUS = 180;
 var GLOW_COLOR = 'rgba(90, 215, 255, 0.17)';
 
 var PRESS = { raf: null, current: null, running: false, timers: new WeakMap() };
-var TILT_MAX = 0.0175;
+var TILT_MAX = 0.031;
 var TILT_PERSPECTIVE = 800;
 var SETTLE_MS = 240;
 
@@ -82,10 +82,15 @@ var PRESS_PANE_SELECTOR = [
 	'[data-global-panel]',
 	'[role="dialog"]',
 	'[aria-modal="true"]',
+	'[data-dsh-surface]',
 	'[class*="dialog"]',
 	'[class*="Dialog"]',
 	'[class*="modal"]',
 	'[class*="Modal"]',
+	'[class*="sheet"]',
+	'[class*="Sheet"]',
+	'[class*="overlay"]',
+	'[class*="Overlay"]',
 	'[class*="sidebarCol"]',
 	'[class*="sidebar"]',
 ].join(', ');
@@ -149,6 +154,14 @@ function pressOnMove(event) {
 	if (!PRESS.running) return;
 	var target = event.target;
 	var pane = pressFindPane(target);
+	if (pane) {
+		A.pressDebug = {
+			tag: pane.tagName ? pane.tagName.toLowerCase() : '?',
+			cls: String(pane.className || '').slice(0, 120),
+			role: pane.getAttribute ? (pane.getAttribute('role') || '') : '',
+			position: (function () { try { return window.getComputedStyle(pane).position; } catch (error) { return ''; } })(),
+		};
+	}
 	if (pane !== PRESS.current) {
 		if (PRESS.current) pressNeutral(PRESS.current);
 		PRESS.current = pane;
@@ -175,10 +188,12 @@ function startPress() {
 	document.addEventListener('pointerleave', pressOnLeave, { passive: true });
 	window.addEventListener('blur', pressOnLeave, { passive: true });
 	PRESS.running = true;
+	A.pressRunning = true;
 }
 
 function stopPress() {
 	PRESS.running = false;
+	A.pressRunning = false;
 	try { document.removeEventListener('pointermove', pressOnMove); } catch (error) { /* ignore */ }
 	try { document.removeEventListener('pointerleave', pressOnLeave); } catch (error) { /* ignore */ }
 	try { window.removeEventListener('blur', pressOnLeave); } catch (error) { /* ignore */ }
