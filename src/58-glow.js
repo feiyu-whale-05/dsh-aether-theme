@@ -78,8 +78,39 @@ function pressTiltable(pane) {
 	return true;
 }
 
+var PRESS_PANE_SELECTOR = [
+	'[data-global-panel]',
+	'[role="dialog"]',
+	'[aria-modal="true"]',
+	'[class*="dialog"]',
+	'[class*="Dialog"]',
+	'[class*="modal"]',
+	'[class*="Modal"]',
+	'[class*="sidebarCol"]',
+	'[class*="sidebar"]',
+].join(', ');
+
+/** 侧栏：不做 3D transform（会给内部 fixed 元素建包含块），用内阴影做下压观感。 */
+function pressIsSidebar(pane) {
+	return Boolean(pane && pane.matches && pane.matches('[class*="sidebarCol"], [class*="sidebar"]'));
+}
+
+function pressSoftDown(pane, on) {
+	if (!pane) return;
+	try {
+		if (on) pane.setAttribute('data-aether-pressed', '1');
+		else pane.removeAttribute('data-aether-pressed');
+	} catch (error) { /* ignore */ }
+}
+
+function pressFindPane(target) {
+	if (!target || typeof target.closest !== 'function') return null;
+	return target.closest(PRESS_PANE_SELECTOR);
+}
+
 function pressNeutral(pane) {
 	if (!pane) return;
+	pressSoftDown(pane, false);
 	pane.style.transform = 'perspective(' + TILT_PERSPECTIVE + 'px) rotateX(0rad) rotateY(0rad) scale(1)';
 	var old = PRESS.timers.get(pane);
 	if (old) clearTimeout(old);
@@ -97,6 +128,10 @@ function pressApply() {
 	PRESS.raf = null;
 	var pane = PRESS.current;
 	if (!pane || !pressTiltable(pane)) return;
+	if (pressIsSidebar(pane)) {
+		pressSoftDown(pane, true);
+		return;
+	}
 	var rect = pane.getBoundingClientRect();
 	if (rect.width === 0 || rect.height === 0) return;
 	var rx = ((GLOW.x - rect.left) / rect.width) * 2 - 1;
@@ -113,7 +148,7 @@ function pressApply() {
 function pressOnMove(event) {
 	if (!PRESS.running) return;
 	var target = event.target;
-	var pane = target && target.closest ? target.closest('[data-global-panel], [role="dialog"]') : null;
+	var pane = pressFindPane(target);
 	if (pane !== PRESS.current) {
 		if (PRESS.current) pressNeutral(PRESS.current);
 		PRESS.current = pane;
