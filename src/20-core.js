@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.25';
+var VERSION = '1.0.26';
 
 var A = {
 	ctx: null,
@@ -811,6 +811,11 @@ function buildStyleText() {
 		'#dsh-aether-whale { position:absolute; z-index:2; transform:translate(-50%,-50%); pointer-events:none; mix-blend-mode:screen; opacity:.92; }',
 		'html[data-dsh-aether] body:not([data-ds-dark-theme]) #dsh-aether-whale { mix-blend-mode:multiply; }',
 		'#dsh-aether-whale canvas { width:100%; height:100%; display:block; }',
+		// 侧栏下压：内阴影（不创建 containing block，不影响 fixed 按钮）
+		'html[data-dsh-aether] [data-aether-pressed="1"] {',
+		'  box-shadow: inset 0 0 80px rgba(0, 0, 0, .26) !important;',
+		'  transition: box-shadow .18s ease;',
+		'}',
 		'#dsh-aether-critters svg { position:absolute; display:block; }',
 		'.aether-critter.fish { color:#9cc0f2; opacity:.42; animation: aether-fish-swim 12s ease-in-out infinite; will-change:transform; filter: drop-shadow(0 0 6px rgba(124,170,240,.35)); }',
 		'.aether-critter.fish.fish-left { animation-name: aether-fish-swim-left; animation-duration:16s; }',
