@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.35';
+		var VERSION = '1.0.36';
 
 		var A = {
 			ctx: null,
@@ -3002,8 +3002,13 @@ window.__ModuleLoader__.load({
 		}
 
 		function pressFindPane(target) {
-			if (!target || typeof target.closest !== 'function') return null;
-			return target.closest(PRESS_PANE_SELECTOR) || pressFindFloatingPane(target);
+			if (!target) return null;
+			// 先找「内层浮层」：对话框/弹窗通常是 fixed/absolute 的大容器，
+			// 优先级高于外层 [data-global-panel]（否则倾斜会落在外层内容区上，视觉上没反应）。
+			var floating = pressFindFloatingPane(target);
+			if (floating) return floating;
+			if (typeof target.closest !== 'function') return null;
+			return target.closest(PRESS_PANE_SELECTOR);
 		}
 
 		function pressNeutral(pane) {
