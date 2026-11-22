@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.48';
+		var VERSION = '1.0.49';
 
 		var A = {
 			ctx: null,
@@ -830,12 +830,12 @@ window.__ModuleLoader__.load({
 					chromeOpacity: 0, chromeBlur: 14,
 				// 分区背景：每个区域可单独设颜色与不透明度；enabled=false 时跟随外壳统一色
 				backgrounds: {
-					sidebar: { enabled: false, color: '#22262f', opacity: 0.5 },
-					input: { enabled: false, color: '#22262f', opacity: 0.5 },
-					bubble: { enabled: false, color: '#dbe7ff', opacity: 0.55 },
-					topbar: { enabled: false, color: '#22262f', opacity: 0.5 },
-					titlebar: { enabled: false, color: '#1b1f27', opacity: 0.6 },
-					settings: { enabled: false, color: '#22262f', opacity: 0.6 },
+					sidebar: { enabled: false, image: '', color: '#22262f', opacity: 0.5 },
+					input: { enabled: false, image: '', color: '#22262f', opacity: 0.5 },
+					bubble: { enabled: false, image: '', color: '#dbe7ff', opacity: 0.55 },
+					topbar: { enabled: false, image: '', color: '#22262f', opacity: 0.5 },
+					titlebar: { enabled: false, image: '', color: '#1b1f27', opacity: 0.6 },
+					settings: { enabled: false, image: '', color: '#22262f', opacity: 0.6 },
 				},
 				},
 				pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
@@ -1059,6 +1059,30 @@ window.__ModuleLoader__.load({
 				'html[data-dsh-aether] [data-aether-input-host] { background-color: var(--aether-input-bg, var(--aether-chrome-fill)) !important; }',
 				'html[data-dsh-aether] [data-global-panel] { background-color: var(--aether-settings-bg, transparent) !important; }',
 				'html[data-dsh-aether] body { --dsw-specific-bubble: var(--aether-bubble-bg, var(--dsw-specific-bubble-default, #dbe7ff8a)) !important; }',
+				// 分区背景图（在底色之上平铺/裁切）
+				'html[data-dsh-aether] [class*="sidebarCol"] {',
+				'  background-image: var(--aether-sidebar-img, none) !important;',
+				'  background-size: cover; background-position: center; background-repeat: no-repeat;',
+				'}',
+				'html[data-dsh-aether] [data-aether-input-host] {',
+				'  background-image: var(--aether-input-img, none) !important;',
+				'  background-size: cover; background-position: center; background-repeat: no-repeat;',
+				'}',
+				'html[data-dsh-aether] header {',
+				'  background-image: var(--aether-topbar-img, none) !important;',
+				'  background-size: cover; background-position: center; background-repeat: no-repeat;',
+				'}',
+				'html[data-dsh-aether][data-windows-titlebar] [data-aether-frame]::before {',
+				'  background-image: var(--aether-titlebar-img, none) !important;',
+				'  background-size: cover; background-position: center; background-repeat: no-repeat;',
+				'}',
+				'html[data-dsh-aether] [data-global-panel] {',
+				'  background-image: var(--aether-settings-img, none) !important;',
+				'  background-size: cover; background-position: center; background-repeat: no-repeat;',
+				'}',
+				'html[data-dsh-aether] body {',
+				'  --dsw-specific-bubble-image: var(--aether-bubble-img, none);',
+				'}',
 				// 输入框卡片底色统一到外壳变量（侧栏与顶栏由宿主的 frame/sidebar-fill 变量控制，
 				// 不再强行覆盖它们自身的背景，避免盖住侧栏里的折叠按钮等控件）
 				// 设置/图片查看的遮罩层用的是硬编码 #00000080（不是 CSS 变量），
@@ -1821,12 +1845,20 @@ window.__ModuleLoader__.load({
 					var key = keys[i];
 					var item = regionBg[key];
 					var varName = '--aether-' + key + '-bg';
+					var imgName = '--aether-' + key + '-img';
 					if (item && item.enabled === true) {
 						var color = parseColor(item.color || '#22262f');
 						var alpha = clamp(item.opacity === undefined ? 0.5 : item.opacity, 0, 1);
 						setVar(varName, rgba(color, alpha));
 					} else {
 						clearVar(varName);
+					}
+					// 分区背景图：选了壁纸库里的图片就挂上，否则清掉
+					if (item && item.image) {
+						var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(item.image) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
+						setVar(imgName, 'url("' + url + '")');
+					} else {
+						clearVar(imgName);
 					}
 				}
 			})();
@@ -3612,6 +3644,23 @@ window.__ModuleLoader__.load({
 								},
 								style: { width: '34px', height: '24px', border: 'none', background: 'transparent', opacity: item.enabled ? 1 : 0.4 },
 							}),
+							h('select', {
+								value: item.image || '',
+								disabled: !item.enabled,
+								onChange: function (event) {
+									mutate(function (draft) {
+										draft.backgrounds = draft.backgrounds || {};
+										draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { image: event.target.value });
+									}, { wallpaper: false });
+								},
+								style: { maxWidth: '140px', opacity: item.enabled ? 1 : 0.4 },
+							}, [h('option', { value: '', key: '' }, '无背景图')].concat(
+								(A.host.wallpapers || [])
+									.filter(function (w) { return !w.kind || w.kind === 'image'; })
+									.map(function (w) {
+										return h('option', { value: w.id, key: w.id }, String(w.name || w.id).slice(0, 14));
+									})
+							)),
 							h('input', {
 								type: 'range', min: 0, max: 1, step: 0.01,
 								value: item.opacity === undefined ? 0.5 : item.opacity,
