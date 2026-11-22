@@ -60,7 +60,7 @@ const fakeCtx = {
 mod.apply(fakeCtx)
 
 await new Promise((r) => setTimeout(r, 300))
-const keys = ['--aether-strong', '--aether-panel-scale', '--aether-input-inner', '--aether-wenxin-a', '--aether-wenxin-b', '--aether-wenxin-c', '--aether-brand-blue', '--aether-brand-blue-ink', '--aether-brand-blue-hover', '--aether-accent-readable', '--aether-accent-ink', '--aether-caret', '--aether-label-primary', '--aether-label-secondary', '--aether-label-tertiary', '--aether-label-caption', '--aether-bg-base', '--aether-sidebar-fill', '--aether-accent', '--aether-code-bg', '--aether-code-fg', '--aether-glass-blur', '--aether-bg-blur']
+const keys = ['--aether-chrome-fill', '--aether-chrome-blur', '--aether-strong', '--aether-panel-scale', '--aether-input-inner', '--aether-wenxin-a', '--aether-wenxin-b', '--aether-wenxin-c', '--aether-brand-blue', '--aether-brand-blue-ink', '--aether-brand-blue-hover', '--aether-accent-readable', '--aether-accent-ink', '--aether-caret', '--aether-label-primary', '--aether-label-secondary', '--aether-label-tertiary', '--aether-label-caption', '--aether-bg-base', '--aether-sidebar-fill', '--aether-accent', '--aether-code-bg', '--aether-code-fg', '--aether-glass-blur', '--aether-bg-blur']
 for (const k of keys) console.log(k.padEnd(30), vars.get(k) ?? '(unset)')
 const dark = ['--aether-label-primary', '--aether-label-secondary'].every((k) => {
   const v = vars.get(k) || ''
