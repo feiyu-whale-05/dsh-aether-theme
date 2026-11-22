@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.65';
+var VERSION = '1.0.66';
 
 var A = {
 	ctx: null,
@@ -649,6 +649,36 @@ function watchMaskLayers() {
 	} catch (error) { /* ignore */ }
 }
 
+/** 标记「顶栏」容器：标签栏 [data-conversation-tabs] 本身 + 它的直接父级（标签行外框）。
+ *  只往上两层，确保不会标记到 frame / 标题栏区域。 */
+function tagTopbar() {
+	var marked = 0;
+	try {
+		if (document.querySelectorAll('[data-aether-topbar]').length) return -1; // 已标记
+		var tabs = document.querySelector('[data-conversation-tabs]');
+		if (!tabs) return 0;
+		var node = tabs.parentElement;
+		var depth = 0;
+		while (node && depth < 2) {
+			// 防御：绝不标记包含整窗内容的 frame 级容器
+			if (node.id === 'root' || node.hasAttribute('data-aether-frame')) break;
+			node.setAttribute('data-aether-topbar', '1');
+			marked += 1;
+			node = node.parentElement;
+			depth += 1;
+		}
+	} catch (error) { /* ignore */ }
+	return marked;
+}
+
+function clearTopbarMark() {
+	try {
+		document.querySelectorAll('[data-aether-topbar]').forEach(function (node) {
+			node.removeAttribute('data-aether-topbar');
+		});
+	} catch (error) { /* ignore */ }
+}
+
 function ensureStage() {
 	if (A.stageEl && document.body.contains(A.stageEl)) return A.stageEl;
 	var stage = document.createElement('div');
@@ -769,7 +799,7 @@ function buildStyleText() {
 		'html[data-windows-titlebar][data-dsh-aether] [data-aether-frame]::before {',
 		'  background: linear-gradient(rgba(0, 0, 0, var(--aether-titlebar-extra, .08)), rgba(0, 0, 0, var(--aether-titlebar-extra, .08))), var(--aether-titlebar-bg, var(--aether-chrome-fill)) !important;',
 		'}',
-		'html[data-dsh-aether] [data-conversation-tabs], html[data-dsh-aether] :has(> [data-conversation-tabs]) { background-color: var(--aether-topbar-bg, transparent) !important; }',
+		'html[data-dsh-aether] [data-conversation-tabs], html[data-dsh-aether] [data-aether-topbar] { background-color: var(--aether-topbar-bg, transparent) !important; }',
 		'html[data-dsh-aether] [data-aether-input-host] { background-color: var(--aether-input-bg, var(--aether-chrome-fill)) !important; }',
 		'html[data-dsh-aether] [data-global-panel] { background-color: var(--aether-settings-bg, transparent) !important; }',
 		'html[data-dsh-aether] body { --dsw-specific-bubble: var(--aether-bubble-bg, var(--dsw-specific-bubble-default, #dbe7ff8a)) !important; }',
@@ -782,7 +812,7 @@ function buildStyleText() {
 		'  background-image: var(--aether-input-img, none) !important;',
 		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
-		'html[data-dsh-aether] [data-conversation-tabs], html[data-dsh-aether] :has(> [data-conversation-tabs]) {',
+		'html[data-dsh-aether] [data-conversation-tabs], html[data-dsh-aether] [data-aether-topbar] {',
 		'  background-image: var(--aether-topbar-img, none) !important;',
 		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
@@ -1223,6 +1253,11 @@ function collectDiag() {
 			pressRunning: Boolean(A.pressRunning),
 			pressTarget: A.pressDebug || null,
 			pressApplied: A.pressApplied || null,
+			topbar: {
+				tabs: document.querySelectorAll('[data-conversation-tabs]').length,
+				marked: document.querySelectorAll('[data-aether-topbar]').length,
+				markedClasses: Array.prototype.map.call(document.querySelectorAll('[data-aether-topbar]'), function (n) { return String(n.className || '').slice(0, 40); }),
+			},
 			avatars: {
 				userRows: document.querySelectorAll('[class*="userRow"]').length,
 				agentRows: document.querySelectorAll('[class*="assistantRow"], [class*="assistant"], [class*="markdown"]').length,
