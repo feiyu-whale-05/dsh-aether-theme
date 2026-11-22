@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.72';
+		var VERSION = '1.0.73';
 
 		var A = {
 			ctx: null,
@@ -1545,6 +1545,7 @@ window.__ModuleLoader__.load({
 						markedClasses: Array.prototype.map.call(document.querySelectorAll('[data-aether-topbar]'), function (n) { return String(n.className || '').slice(0, 40); }),
 					},
 					avatars: {
+						statusRows: document.querySelectorAll('[data-aether-status]').length,
 						userRows: document.querySelectorAll('[class*="userRow"]').length,
 						agentRows: document.querySelectorAll('[class*="assistantRow"], [class*="assistant"], [class*="markdown"]').length,
 						nodes: document.querySelectorAll('.aeth-avatar').length,
@@ -4979,16 +4980,26 @@ window.__ModuleLoader__.load({
 		/** 在内容容器的祖先范围内找「已完成，用时…」那一行元素。 */
 		function findStatusLine(row) {
 			try {
+				// 状态行可能是 button/summary（带折叠箭头），把候选标签放开，向上找 6 层
 				var scope = row.parentElement;
-				for (var depth = 0; scope && depth < 4; depth += 1) {
-					var nodes = scope.querySelectorAll('span, div');
+				for (var depth = 0; scope && depth < 6; depth += 1) {
+					var nodes = scope.querySelectorAll('button, summary, span, div, p, a');
 					for (var i = 0; i < nodes.length; i += 1) {
 						var el = nodes[i];
-						if (el.querySelector('.aeth-avatar')) continue;
-						if (el.children.length > 4) continue;
+						if (el.querySelector && el.querySelector('.aeth-avatar')) continue;
+						if (el.children && el.children.length > 6) continue;
 						var text = (el.textContent || '').trim();
 						if (!text || text.length > 60) continue;
-						if (STATUS_TEXT.test(text)) return el;
+						if (!STATUS_TEXT.test(text)) continue;
+						// 取命中里「最深」的那个（文本最接近行本身，避免命中整块 turn）
+						var deeper = el.querySelector('button, summary, span, div, p, a');
+						var candidate = el;
+						while (deeper && deeper.textContent && deeper.textContent.trim().length === text.length
+							&& STATUS_TEXT.test(deeper.textContent) && deeper.children.length <= 6) {
+							candidate = deeper;
+							deeper = deeper.querySelector('button, summary, span, div, p, a');
+						}
+						return candidate;
 					}
 					scope = scope.parentElement;
 				}
