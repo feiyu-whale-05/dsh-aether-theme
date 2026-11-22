@@ -108,9 +108,27 @@ function pressSoftDown(pane, on) {
 	} catch (error) { /* ignore */ }
 }
 
+/** 兜底：向上找第一个「fixed/absolute 且尺寸像对话框」的祖先（DSH 的对话框是 portal 到 body 的容器）。 */
+function pressFindFloatingPane(target) {
+	try {
+		var node = target;
+		var depth = 0;
+		while (node && node !== document.body && depth < 10) {
+			var style = window.getComputedStyle(node);
+			if ((style.position === 'fixed' || style.position === 'absolute')
+				&& node.offsetWidth > 360 && node.offsetHeight > 240) {
+				return node;
+			}
+			node = node.parentElement;
+			depth += 1;
+		}
+	} catch (error) { /* ignore */ }
+	return null;
+}
+
 function pressFindPane(target) {
 	if (!target || typeof target.closest !== 'function') return null;
-	return target.closest(PRESS_PANE_SELECTOR);
+	return target.closest(PRESS_PANE_SELECTOR) || pressFindFloatingPane(target);
 }
 
 function pressNeutral(pane) {
