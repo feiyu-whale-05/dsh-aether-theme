@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.42';
+		var VERSION = '1.0.43';
 
 		var A = {
 			ctx: null,
@@ -2966,13 +2966,12 @@ window.__ModuleLoader__.load({
 		//   · 设置对话框、主面板（设置页/图片预览/插件列表）、消息气泡都不下压
 		var PRESS_PANE_SELECTOR = [
 			'[class*="sidebarCol"]',
-			'[class*="sidebar"]',
 			'[data-aether-input-host]',
 		].join(', ');
 
 		/** Aqua 同款：侧栏也做 3D tilt；但侧栏内存在 dialog 时跳过（避免给 fixed 元素建包含块）。 */
 		function pressIsSidebar(pane) {
-			return Boolean(pane && pane.matches && pane.matches('[class*="sidebarCol"], [class*="sidebar"]'));
+			return Boolean(pane && pane.matches && pane.matches('[class*="sidebarCol"]'));
 		}
 
 		function pressSoftDown(pane, on) {
@@ -3023,6 +3022,9 @@ window.__ModuleLoader__.load({
 			pressSoftDown(pane, false);
 			try { pane.removeAttribute('data-aether-press-shade'); } catch (error) { /* ignore */ }
 			A.pressApplied = null;
+			// 侧栏从不写 transform（哪怕只是回正的三维矩阵）：写了就创建 containing block，
+			// 侧栏里 position:fixed 的收起按钮会立刻被挤出顶栏。
+			if (pressIsSidebar(pane)) return;
 			pane.style.transform = 'perspective(' + TILT_PERSPECTIVE + 'px) rotateX(0rad) rotateY(0rad) scale(1)';
 			var old = PRESS.timers.get(pane);
 			if (old) clearTimeout(old);
