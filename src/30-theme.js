@@ -462,6 +462,17 @@ function applyAppearance(reason) {
 	notify();
 }
 
+/** 标记 AppFrame 根（#root 下第一个 div），用于消掉 Windows 标题栏的双层半透明。 */
+function tagAppFrame() {
+	try {
+		var root = document.getElementById('root');
+		if (!root) return;
+		var frame = root.firstElementChild;
+		if (!frame) return;
+		if (frame.getAttribute('data-aether-frame') !== '1') frame.setAttribute('data-aether-frame', '1');
+	} catch (error) { /* ignore */ }
+}
+
 function aliasCode(alpha) {
 	return clamp(alpha, 0, 1);
 }
