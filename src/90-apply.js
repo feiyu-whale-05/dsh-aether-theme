@@ -169,6 +169,9 @@ var apply = function apply(ctx) {
 		notify();
 	});
 
+	// 2.4) 遮罩层清理（设置/图片查看的黑底直接删元素）
+	try { removeMaskLayers(); watchMaskLayers(); } catch (error) { /* ignore */ }
+
 	// 2.5) 用户消息 markdown 自动渲染
 	try { startUserMarkdown(); } catch (error) { /* ignore */ }
 
@@ -194,6 +197,7 @@ var apply = function apply(ctx) {
 					try { if (A.diagTimer) clearInterval(A.diagTimer); } catch (error) { /* ignore */ }
 					try { if (A.observer) A.observer.disconnect(); } catch (error) { /* ignore */ }
 					try { stopUserMarkdown(); } catch (error) { /* ignore */ }
+					try { if (A.maskObserver) A.maskObserver.disconnect(); } catch (error) { /* ignore */ }
 					try { stopFx(); } catch (error) { /* ignore */ }
 					try { whaleStop(); } catch (error) { /* ignore */ }
 					try { stopGlow(); stopPress(); } catch (error) { /* ignore */ }
