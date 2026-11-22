@@ -1,6 +1,6 @@
 {
   "name": "dsh-aether-theme",
-  "version": "1.0.64",
+  "version": "1.0.65",
   "private": true,
   "type": "module",
   "description": "以太主题：DSH 桌面版的背景 + 毛玻璃 + 对比度兜底主题引擎。零布局侵入、逐字节回滚、模块化按需加载；WCAG 动态反解、智能色彩衍生、壁纸轮换/时段/分类锁定、JSON 主题包导入导出、服务注入、屏幕内诊断面板。 组合包内含可选费用统计伙伴 dsh-cost-meter。",
