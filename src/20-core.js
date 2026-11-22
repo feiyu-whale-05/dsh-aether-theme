@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.17';
+var VERSION = '1.0.18';
 
 var A = {
 	ctx: null,
@@ -655,19 +655,21 @@ function buildStyleText() {
 		'  --dsw-alias-label-caption: var(--aether-label-caption, #5d636d) !important;',
 		'}',
 		// 面板玻璃：只对有明确语义的容器做 backdrop-filter（不改结构/位置）
-		'html[data-dsh-aether] [role="dialog"],',
-		'html[data-dsh-aether] [role="menu"] {',
+		'html[data-dsh-aether][data-glass-blur="on"] [role="dialog"],',
+		'html[data-dsh-aether][data-glass-blur="on"] [role="menu"] {',
 		'  backdrop-filter: blur(var(--aether-glass-blur, 0px)) saturate(var(--aether-saturation, 1.15));',
 		'}',
 		// 外壳统一：顶栏 / 侧栏 / 输入框卡片共用同一套「暗度 + 磨砂」
 		// 默认磨砂 0（纯半透明），调高时三处一起变磨砂。
-		'html[data-dsh-aether] [data-global-panel],',
-		'html[data-dsh-aether] [data-rightbar-col],',
-		'html[data-dsh-aether] [class*="sidebarCol"],',
-		'html[data-dsh-aether] [class*="sidebar"],',
-		'html[data-dsh-aether] [class*="Sidebar"],',
-		'html[data-dsh-aether] [data-aether-input-host] {',
-		'  backdrop-filter: blur(var(--aether-chrome-blur, 0px)) !important;',
+		// 只有显式打开磨砂（chromeBlur > 0）时才加 backdrop-filter；
+		// 否则悬空属性会创建 containing block，破坏侧栏里 fixed 按钮的定位。
+		'html[data-dsh-aether][data-chrome-blur="on"] [data-global-panel],',
+		'html[data-dsh-aether][data-chrome-blur="on"] [data-rightbar-col],',
+		'html[data-dsh-aether][data-chrome-blur="on"] [class*="sidebarCol"],',
+		'html[data-dsh-aether][data-chrome-blur="on"] [class*="sidebar"],',
+		'html[data-dsh-aether][data-chrome-blur="on"] [class*="Sidebar"],',
+		'html[data-dsh-aether][data-chrome-blur="on"] [data-aether-input-host] {',
+		'  backdrop-filter: blur(var(--aether-chrome-blur)) !important;',
 		'}',
 		// 输入框卡片底色与侧栏/顶栏用同一个变量（宿主卡片自带 #14161B99，统一覆盖）
 		'html[data-dsh-aether] [data-aether-input-host] {',
