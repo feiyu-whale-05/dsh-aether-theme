@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.71';
+		var VERSION = '1.0.72';
 
 		var A = {
 			ctx: null,
@@ -4896,6 +4896,7 @@ window.__ModuleLoader__.load({
 		var AVATAR_AGENT_SELECTOR = [
 			'[class*="assistantRow"]',
 			'[class*="assistant"]',
+			'[class*="markdown"]',
 		].join(', ');
 		/** 状态行标记：只有带这个属性的元素才允许承载 agent 头像。 */
 		var STATUS_MARK = 'data-aether-status';
@@ -4973,7 +4974,7 @@ window.__ModuleLoader__.load({
 			} catch (error) { /* ignore */ }
 		}
 
-		var STATUS_TEXT = /(已完成|运行中|思考中|用时|\d+\s*秒|\d+分)/;
+		var STATUS_TEXT = /(完成|运行|思考|用时|耗时|已用|\d+\s*秒|\d+\s*分)/;
 
 		/** 在内容容器的祖先范围内找「已完成，用时…」那一行元素。 */
 		function findStatusLine(row) {
@@ -4984,9 +4985,9 @@ window.__ModuleLoader__.load({
 					for (var i = 0; i < nodes.length; i += 1) {
 						var el = nodes[i];
 						if (el.querySelector('.aeth-avatar')) continue;
-						if (el.children.length > 2) continue;
+						if (el.children.length > 4) continue;
 						var text = (el.textContent || '').trim();
-						if (!text || text.length > 40) continue;
+						if (!text || text.length > 60) continue;
 						if (STATUS_TEXT.test(text)) return el;
 					}
 					scope = scope.parentElement;
@@ -5003,8 +5004,7 @@ window.__ModuleLoader__.load({
 				var seenStatus = [];
 				document.querySelectorAll(AVATAR_AGENT_SELECTOR).forEach(function (row) {
 					if (row.parentElement && row.parentElement.closest(AVATAR_AGENT_SELECTOR)) return;
-					var status = findStatusLine(row);
-					if (!status) return;                       // 没有状态行就不挂，绝不在正文左侧出现
+					var status = findStatusLine(row) || row;     // 状态行优先，找不到就退回内容容器
 					if (seenStatus.indexOf(status) !== -1) return;
 					seenStatus.push(status);
 					try { status.setAttribute(STATUS_MARK, '1'); } catch (error) { /* ignore */ }
