@@ -41,7 +41,7 @@ function meteorSpawn(x, y, dx, dy) {
 			vy: -dy * 0.045 + (Math.random() - 0.5) * 1.4 - 0.35,
 			life: 1,
 			decay: 0.032 + Math.random() * 0.045,
-			size: 1.3 + Math.random() * 2.8,
+			size: 0.7 + Math.random() * 1.5,
 			hue: hueBase + (Math.random() * 70 - 20),
 		});
 	}
@@ -75,10 +75,10 @@ function meteorTick() {
 			METEOR.particles.splice(i, 1);
 			continue;
 		}
-		var alpha = Math.max(0, p.life) * 0.95;
+		var alpha = Math.max(0, p.life) * 0.62;
 		var gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 4);
-		gradient.addColorStop(0, 'hsla(' + p.hue + ', 100%, 86%, ' + alpha + ')');
-		gradient.addColorStop(0.45, 'hsla(' + (p.hue + 18) + ', 100%, 72%, ' + (alpha * 0.7) + ')');
+		gradient.addColorStop(0, 'hsla(' + p.hue + ', 100%, 76%, ' + alpha + ')');
+		gradient.addColorStop(0.45, 'hsla(' + (p.hue + 18) + ', 100%, 64%, ' + (alpha * 0.6) + ')');
 		gradient.addColorStop(1, 'hsla(' + (p.hue + 30) + ', 100%, 60%, 0)');
 		ctx.fillStyle = gradient;
 		ctx.beginPath();
