@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.16';
+var VERSION = '1.0.17';
 
 var A = {
 	ctx: null,
@@ -517,6 +517,7 @@ function defaultConfigFallback() {
 			glassBlur: 0, backgroundBlur: 0, saturation: 1.15, border: 0.14,
 			regions: { base: 0, sidebar: 0.55, layers: 0.55, menu: 0.74, input: 0.55, bubble: 0.5 },
 			inputFills: ['frosted'], inputFillOpacity: 0.55,
+			chromeOpacity: 0.55, chromeBlur: 0,
 		},
 		pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
 		widget: { position: 'bottom-right', showBalance: true, showToday: true, showTurn: true, warnBelow: 5 },
@@ -615,8 +616,7 @@ function buildStyleText() {
 		'  --dsw-alias-bg-module-platform: var(--aether-bg-module) !important;',
 		'  --dsw-alias-bg-multi-select: var(--aether-bg-module) !important;',
 		'  --dsw-alias-bg-overlay: var(--aether-bg-overlay) !important;',
-		'  --dsw-specific-sidebar-fill: var(--aether-sidebar-fill) !important;',
-		'  --dsw-specific-sidebar-glass-fill: var(--aether-sidebar-fill) !important;',
+
 		'  --dsw-specific-menu: var(--aether-menu-fill) !important;',
 		'  --dsw-specific-input-major: var(--aether-input-fill) !important;',
 		'  --dsw-specific-selector: var(--aether-input-fill) !important;',
@@ -659,14 +659,25 @@ function buildStyleText() {
 		'html[data-dsh-aether] [role="menu"] {',
 		'  backdrop-filter: blur(var(--aether-glass-blur, 0px)) saturate(var(--aether-saturation, 1.15));',
 		'}',
-		// 彻底去磨砂：全局面板、右栏与宿主侧栏的 backdrop-filter 一律清掉。
-		// 面板靠半透明底色表现玻璃感，但不再模糊背后的壁纸。
+		// 外壳统一：顶栏 / 侧栏 / 输入框卡片共用同一套「暗度 + 磨砂」
+		// 默认磨砂 0（纯半透明），调高时三处一起变磨砂。
 		'html[data-dsh-aether] [data-global-panel],',
 		'html[data-dsh-aether] [data-rightbar-col],',
 		'html[data-dsh-aether] [class*="sidebarCol"],',
 		'html[data-dsh-aether] [class*="sidebar"],',
-		'html[data-dsh-aether] [class*="Sidebar"] {',
-		'  backdrop-filter: none !important;',
+		'html[data-dsh-aether] [class*="Sidebar"],',
+		'html[data-dsh-aether] [data-aether-input-host] {',
+		'  backdrop-filter: blur(var(--aether-chrome-blur, 0px)) !important;',
+		'}',
+		// 输入框卡片底色与侧栏/顶栏用同一个变量（宿主卡片自带 #14161B99，统一覆盖）
+		'html[data-dsh-aether] [data-aether-input-host] {',
+		'  background-color: var(--aether-chrome-fill) !important;',
+		'}',
+		// 顶栏（Windows 标题栏带「应用/编辑」那行）：frame 背景已由 sidebar-fill 控制，
+		// 这里把 sidebar-fill 直接绑到同一个 chrome 变量
+		'html[data-dsh-aether] body {',
+		'  --dsw-specific-sidebar-fill: var(--aether-chrome-fill) !important;',
+		'  --dsw-specific-sidebar-glass-fill: var(--aether-chrome-fill) !important;',
 		'}',
 		// 壁纸层：双缓冲淡入淡出（防闪烁）
 		'#dsh-aether-stage > .aether-wall { position:absolute; inset:0; z-index:1; opacity:0; transition:opacity var(--aether-transition, 420ms) ease; will-change:opacity; }',
