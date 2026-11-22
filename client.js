@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.73';
+		var VERSION = '1.0.74';
 
 		var A = {
 			ctx: null,
@@ -1315,7 +1315,7 @@ window.__ModuleLoader__.load({
 				'.aeth-avatar { position:absolute; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:600; color:#eaf1ff; background:rgba(34,38,47,.85); border:1px solid rgba(255,255,255,.14); box-shadow:0 3px 10px rgba(0,0,0,.35); overflow:hidden; pointer-events:none; user-select:none; z-index:3; }',
 				'.aeth-avatar img { width:100%; height:100%; object-fit:cover; display:block; }',
 				'.aeth-avatar-user { right:-38px; top:0px; background:rgba(65,118,230,.9); }',
-				'.aeth-avatar-agent { left:-38px; top:-4px; }',
+				'.aeth-avatar-agent { left:-40px; top:50%; margin-top:-15px; }',
 				// 用户气泡左下角装饰
 				'.aeth-bubble-deco { position:absolute; left:0px; bottom:-2px; font-size:17px; line-height:1; pointer-events:none; z-index:10; filter: drop-shadow(0 2px 5px rgba(0,0,0,.45)); user-select:none; }',
 				'.aeth-bubble-deco img { width:24px; height:24px; object-fit:contain; display:block; border-radius:6px; }',
@@ -5016,10 +5016,12 @@ window.__ModuleLoader__.load({
 				document.querySelectorAll(AVATAR_AGENT_SELECTOR).forEach(function (row) {
 					if (row.parentElement && row.parentElement.closest(AVATAR_AGENT_SELECTOR)) return;
 					var status = findStatusLine(row) || row;     // 状态行优先，找不到就退回内容容器
-					if (seenStatus.indexOf(status) !== -1) return;
-					seenStatus.push(status);
-					try { status.setAttribute(STATUS_MARK, '1'); } catch (error) { /* ignore */ }
-					syncAvatar(status, 'agent', cfg);
+					// 最深命中可能是 inline 的 <span>（定位不稳定），头像挂到它的块级容器上
+					var host = (status.closest && status.closest('button, summary, div, a')) || status;
+					if (seenStatus.indexOf(host) !== -1) return;
+					seenStatus.push(host);
+					try { host.setAttribute(STATUS_MARK, '1'); } catch (error) { /* ignore */ }
+					syncAvatar(host, 'agent', cfg);
 				});
 				// 清理：任何不在状态行里的 agent 头像（包括历史残留 / 正文块上的）
 				document.querySelectorAll('.aeth-avatar-agent').forEach(function (node) {
