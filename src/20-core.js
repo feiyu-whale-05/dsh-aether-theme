@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.46';
+var VERSION = '1.0.47';
 
 var A = {
 	ctx: null,
@@ -589,6 +589,53 @@ function loadLocalCache() {
 }
 
 // ── 舞台层（隔离节点，不改宿主结构） ────────────────────────────────────
+/** 遮罩层选择器（设置对话框/图片查看的黑底）：直接删元素而不是改颜色。 */
+var MASK_SELECTOR = '[class*="_mask"], [class*="-mask"], [class*="_Mask"], [class*="_scrim"], [class*="_backdrop"]';
+
+function isMaskNode(node) {
+	try {
+		if (!node || node.nodeType !== 1) return false;
+		if (node.id && node.id.indexOf('dsh-aether-') === 0) return false;
+		if (node.closest && node.closest('.aeth-root')) return false;
+		return node.matches(MASK_SELECTOR);
+	} catch (error) {
+		return false;
+	}
+}
+
+/** 立即移除屏幕上已有的遮罩层。 */
+function removeMaskLayers() {
+	var removed = 0;
+	try {
+		var nodes = document.querySelectorAll(MASK_SELECTOR);
+		for (var i = 0; i < nodes.length; i += 1) {
+			var node = nodes[i];
+			if (!isMaskNode(node)) continue;
+			try { node.remove(); removed += 1; } catch (error) { /* ignore */ }
+		}
+	} catch (error) { /* ignore */ }
+	if (removed > 0) pushLog('info', '已移除遮罩层', { count: removed });
+	return removed;
+}
+
+/** 持续清理：对话/设置页打开时会重新插入遮罩。 */
+function watchMaskLayers() {
+	try {
+		if (A.maskObserver) return;
+		A.maskObserver = new MutationObserver(function (mutations) {
+			var hit = false;
+			for (var i = 0; i < mutations.length && !hit; i += 1) {
+				var added = mutations[i].addedNodes;
+				for (var j = 0; j < added.length; j += 1) {
+					if (isMaskNode(added[j]) || (added[j].querySelector && added[j].querySelector(MASK_SELECTOR))) { hit = true; break; }
+				}
+			}
+			if (hit) setTimeout(removeMaskLayers, 30);
+		});
+		A.maskObserver.observe(document.body, { childList: true, subtree: true });
+	} catch (error) { /* ignore */ }
+}
+
 function ensureStage() {
 	if (A.stageEl && document.body.contains(A.stageEl)) return A.stageEl;
 	var stage = document.createElement('div');
