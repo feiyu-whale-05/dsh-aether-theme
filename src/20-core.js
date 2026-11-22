@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.44';
+var VERSION = '1.0.45';
 
 var A = {
 	ctx: null,
@@ -649,6 +649,16 @@ function buildStyleText() {
 		'  --dsw-alias-label-tertiary: var(--aether-label-tertiary, #aeb3bc) !important;',
 		'  --dsw-alias-label-caption: var(--aether-label-caption, #9aa0aa) !important;',
 		'  --dsw-alias-label-dimmed: var(--aether-label-dimmed, #7d838d) !important;',
+		// 设置页 / 图片放大查看的灰色来自宿主遮罩与浮层底色，统一透明（透出壁纸）
+		'html[data-dsh-aether] body {',
+		'  --dsw-alias-bg-mask-1: rgba(0, 0, 0, 0) !important;',
+		'  --dsw-alias-bg-mask-2: rgba(0, 0, 0, 0) !important;',
+		'  --dsw-alias-bg-mask-3: rgba(0, 0, 0, 0) !important;',
+		'  --dsw-alias-bg-mask-photo: rgba(0, 0, 0, 0) !important;',
+		'  --dsw-alias-bg-mask-drop: rgba(255, 255, 255, 0) !important;',
+		'  --dsw-alias-bg-overlay: rgba(20, 22, 27, 0) !important;',
+		'  --dsw-alias-bg-module-platform: rgba(20, 22, 27, 0) !important;',
+		'}',
 		'  --dsw-alias-border-l1: var(--aether-border-l1) !important;',
 		'  --dsw-alias-border-l2: var(--aether-border-l2) !important;',
 		'  --dsw-alias-border-l3: var(--aether-border-l3) !important;',
