@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.57';
+		var VERSION = '1.0.58';
 
 		var A = {
 			ctx: null,
@@ -1509,6 +1509,8 @@ window.__ModuleLoader__.load({
 					pressApplied: A.pressApplied || null,
 					bubbleDeco: {
 						bubbles: document.querySelectorAll('[data-message-bubble]').length,
+						userStack: document.querySelectorAll('[class*="userStack"]').length,
+						candidates: document.querySelectorAll('[data-message-bubble], [class*="userStack"], [class*="userBubble"], [data-message-role="user"]').length,
 						decos: document.querySelectorAll('.aeth-bubble-deco').length,
 						enabled: A.cfg && A.cfg.bubbleDecoration ? A.cfg.bubbleDecoration.enabled : null,
 						image: A.cfg && A.cfg.bubbleDecoration ? A.cfg.bubbleDecoration.image : null,
@@ -4630,7 +4632,16 @@ window.__ModuleLoader__.load({
 		// 宿主用户气泡容器：<UserMessageBubble data-message-bubble>，只用于用户消息，
 		// 所以在它内部追加一个绝对定位的小节点即可，不改变原有布局。
 
-		var BUBBLE_DECO_SELECTOR = '[data-message-bubble]';
+		// 宿主把 data-message-bubble 作为 prop 传给了 UserMessageBubble 组件，并不会落到 DOM 上，
+		// 所以要用 CSS Modules 的类名特征来定位用户消息栈。
+		var BUBBLE_DECO_SELECTOR = [
+			'[data-message-bubble]',
+			'[class*="_userStack"]',
+			'[class*="userStack"]',
+			'[class*="_userBubble"]',
+			'[class*="userBubble"]',
+			'[data-message-role="user"]',
+		].join(', ');
 
 		function bubbleDecoConfig() {
 			var cfg = A.cfg && A.cfg.bubbleDecoration;
@@ -4673,9 +4684,14 @@ window.__ModuleLoader__.load({
 		function syncBubbleDeco(bubble) {
 			try {
 				if (!bubble) return;
+				// userStack 是外层栈，真正的气泡要往里找一层（有背景的圆角块）
+				var target = bubble;
+				if (bubble.matches && !bubble.matches('[data-message-bubble]') && bubble.firstElementChild) {
+					target = bubble.querySelector('[class*="_bubble"], [class*="bubble"], [data-message-bubble]') || bubble;
+				}
 				var cfg = bubbleDecoConfig();
 				var existing = null;
-				var children = bubble.children;
+				var children = target.children;
 				for (var i = 0; i < children.length; i += 1) {
 					if (children[i].classList && children[i].classList.contains('aeth-bubble-deco')) { existing = children[i]; break; }
 				}
@@ -4685,13 +4701,13 @@ window.__ModuleLoader__.load({
 				}
 				if (existing) { renderBubbleDeco(existing, cfg); return; }
 				var position = '';
-				try { position = window.getComputedStyle(bubble).position; } catch (error) { position = ''; }
-				if (!position || position === 'static') bubble.style.position = 'relative';
+				try { position = window.getComputedStyle(target).position; } catch (error) { position = ''; }
+				if (!position || position === 'static') target.style.position = 'relative';
 				var node = document.createElement('span');
 				node.className = 'aeth-bubble-deco';
 				node.setAttribute('aria-hidden', 'true');
 				renderBubbleDeco(node, cfg);
-				bubble.appendChild(node);
+				target.appendChild(node);
 			} catch (error) { /* ignore */ }
 		}
 
