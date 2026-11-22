@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.36';
+var VERSION = '1.0.37';
 
 var A = {
 	ctx: null,
@@ -840,7 +840,12 @@ function buildStyleText() {
 		'html[data-dsh-aether] body:not([data-ds-dark-theme]) #dsh-aether-whale { mix-blend-mode:multiply; }',
 		'#dsh-aether-whale canvas { width:100%; height:100%; display:block; }',
 		// 侧栏下压：内阴影（不创建 containing block，不影响 fixed 按钮）
-		'html[data-dsh-aether] [data-aether-pressed="1"] {',
+				// 下压内阴影（3D 倾斜是主效果，这层保证任何容器都看得出"压下去"）
+		'html[data-dsh-aether] [data-aether-press-shade="1"] {',
+		'  box-shadow: inset 0 0 70px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .05) !important;',
+		'  transition: box-shadow .16s ease, transform .16s ease;',
+		'}',
+'html[data-dsh-aether] [data-aether-pressed="1"] {',
 		'  box-shadow: inset 0 0 80px rgba(0, 0, 0, .26) !important;',
 		'  transition: box-shadow .18s ease;',
 		'}',
@@ -1092,6 +1097,7 @@ function collectDiag() {
 			meteorSize: typeof METEOR !== 'undefined' && METEOR.canvas ? (METEOR.canvas.width + 'x' + METEOR.canvas.height) : null,
 			pressRunning: Boolean(A.pressRunning),
 			pressTarget: A.pressDebug || null,
+			pressApplied: A.pressApplied || null,
 			glow: Boolean(A.cfg && A.cfg.fx && A.cfg.fx.glow !== false),
 			fxModule: moduleOn('fx'),
 		},
