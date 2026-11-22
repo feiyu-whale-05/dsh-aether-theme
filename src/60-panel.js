@@ -554,6 +554,12 @@ function GlassTab(cfg, mutate) {
 			sliderRow(t('label.border'), glass.border, 0.02, 0.5, 0.01, function (value) {
 				mutate(function (draft) { draft.glass.border = value; }, { wallpaper: false });
 			}),
+			sliderRow('外壳暗度（顶栏/侧栏/输入框统一）', glass.chromeOpacity === undefined ? 0.55 : glass.chromeOpacity, 0, 1, 0.01, function (value) {
+				mutate(function (draft) { draft.glass.chromeOpacity = value; }, { wallpaper: false });
+			}),
+			sliderRow('外壳磨砂（顶栏/侧栏/输入框统一）', glass.chromeBlur === undefined ? 0 : glass.chromeBlur, 0, 24, 1, function (value) {
+				mutate(function (draft) { draft.glass.chromeBlur = value; }, { wallpaper: false });
+			}, 'px'),
 		),
 		h('div', { className: 'aeth-card' },
 			h('h3', null, t('label.regions')),
