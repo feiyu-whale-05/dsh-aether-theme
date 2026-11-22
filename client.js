@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.23';
+		var VERSION = '1.0.24';
 
 		var A = {
 			ctx: null,
@@ -2321,7 +2321,7 @@ window.__ModuleLoader__.load({
 							vx: -dx * 0.045 + (Math.random() - 0.5) * 1.4,
 							vy: -dy * 0.045 + (Math.random() - 0.5) * 1.4 - 0.35,
 							life: 1,
-							decay: 0.012 + Math.random() * 0.02,
+							decay: 0.032 + Math.random() * 0.045,
 							size: 0.9 + Math.random() * 2.2,
 							hue: hueBase + (Math.random() * 70 - 20),
 						});
@@ -2347,8 +2347,8 @@ window.__ModuleLoader__.load({
 						var p = particles[i];
 						p.x += p.vx;
 						p.y += p.vy;
-						p.vx *= 0.97;
-						p.vy = p.vy * 0.97 + 0.012;
+						p.vx *= 0.93;
+						p.vy = p.vy * 0.93 + 0.02;
 						p.life -= p.decay;
 						if (p.life <= 0) {
 							particles.splice(i, 1);
