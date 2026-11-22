@@ -199,6 +199,10 @@ function AetherPanel() {
 		h('div', { className: 'aeth-head' },
 			h('div', { className: 'aeth-title' }, t('panel.title')),
 			h('div', { className: 'aeth-sub' }, t('panel.subtitle') + ' · v' + VERSION + (A.canary.disabled ? ' · ' + t('safe.mode') : '')),
+			A.lastSavedAt
+				? h('div', { className: 'aeth-note', style: { marginLeft: '10px' }, title: '配置已落盘到 Host 的 config.json（每次写前备份）' },
+					(A.lastSavedOk === false ? '⚠ 保存失败 ' : '✓ 已保存 ') + new Date(A.lastSavedAt).toLocaleTimeString())
+				: null,
 			h('div', { style: { marginLeft: 'auto', display: 'flex', gap: '6px' } },
 				h('button', { className: 'aeth-btn', onClick: function () { loadState().then(function () { applyAppearance('refresh'); applyWallpaper('refresh'); }).catch(function () { setStatus(t('state.error')); }); } }, t('action.refresh')),
 				h('button', { className: 'aeth-btn danger', onClick: doReset }, t('action.reset')),
@@ -666,6 +670,7 @@ function DiagTab(exportDiag) {
 				h('b', null, 'reduced-motion'), h('span', null, String(shouldReduceMotion())),
 				h('b', null, '#root'), h('span', null, String(anchors.root)),
 				h('b', null, 'data-platform'), h('span', null, String(anchors.platform)),
+				h('b', null, '配置文件'), h('span', null, (A.host.diag && A.host.diag.configFile) || '~/.dsh/aether-theme/config.json'),
 			),
 			h('div', { className: 'aeth-row', style: { marginTop: '10px' } },
 				h('button', { className: 'aeth-btn primary', onClick: exportDiag }, '导出 diag.json'),
