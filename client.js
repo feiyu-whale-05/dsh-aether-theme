@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.49';
+		var VERSION = '1.0.50';
 
 		var A = {
 			ctx: null,
@@ -3624,6 +3624,7 @@ window.__ModuleLoader__.load({
 						return h('div', { key: key, className: 'aeth-row', style: { alignItems: 'center' } },
 							h('label', { style: { minWidth: '150px' } }, pair[1]),
 							h('button', {
+								type: 'button',
 								className: 'aeth-btn' + (item.enabled ? ' primary' : ''),
 								onClick: function () {
 									mutate(function (draft) {
@@ -3635,25 +3636,29 @@ window.__ModuleLoader__.load({
 							h('input', {
 								type: 'color',
 								value: item.color || '#22262f',
-								disabled: !item.enabled,
-								onChange: function (event) {
-									mutate(function (draft) {
-										draft.backgrounds = draft.backgrounds || {};
-										draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { color: event.target.value });
-									}, { wallpaper: false });
+								onInput: function (event) {
+									var value = event.target.value;
+									try {
+										mutate(function (draft) {
+											draft.backgrounds = draft.backgrounds || {};
+											draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { color: value, enabled: true });
+										}, { wallpaper: false });
+									} catch (error) { pushLog('error', '分区背景保存失败', { key: key, message: String(error && error.message) }); }
 								},
-								style: { width: '34px', height: '24px', border: 'none', background: 'transparent', opacity: item.enabled ? 1 : 0.4 },
+								style: { width: '34px', height: '24px', border: 'none', background: 'transparent', cursor: 'pointer' },
 							}),
 							h('select', {
 								value: item.image || '',
-								disabled: !item.enabled,
 								onChange: function (event) {
-									mutate(function (draft) {
-										draft.backgrounds = draft.backgrounds || {};
-										draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { image: event.target.value });
-									}, { wallpaper: false });
+									var value = event.target.value;
+									try {
+										mutate(function (draft) {
+											draft.backgrounds = draft.backgrounds || {};
+											draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { image: value, enabled: true });
+										}, { wallpaper: false });
+									} catch (error) { pushLog('error', '分区背景图保存失败', { key: key, message: String(error && error.message) }); }
 								},
-								style: { maxWidth: '140px', opacity: item.enabled ? 1 : 0.4 },
+								style: { maxWidth: '140px', cursor: 'pointer' },
 							}, [h('option', { value: '', key: '' }, '无背景图')].concat(
 								(A.host.wallpapers || [])
 									.filter(function (w) { return !w.kind || w.kind === 'image'; })
@@ -3664,14 +3669,16 @@ window.__ModuleLoader__.load({
 							h('input', {
 								type: 'range', min: 0, max: 1, step: 0.01,
 								value: item.opacity === undefined ? 0.5 : item.opacity,
-								disabled: !item.enabled,
-								onChange: function (event) {
-									mutate(function (draft) {
-										draft.backgrounds = draft.backgrounds || {};
-										draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { opacity: Number(event.target.value) });
-									}, { wallpaper: false });
+								onInput: function (event) {
+									var value = Number(event.target.value);
+									try {
+										mutate(function (draft) {
+											draft.backgrounds = draft.backgrounds || {};
+											draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { opacity: value, enabled: true });
+										}, { wallpaper: false });
+									} catch (error) { pushLog('error', '分区背景保存失败', { key: key, message: String(error && error.message) }); }
 								},
-								style: { flex: '1 1 80px', minWidth: '80px', opacity: item.enabled ? 1 : 0.4 },
+								style: { flex: '1 1 80px', minWidth: '80px' },
 							}),
 							h('span', { className: 'aeth-note', style: { minWidth: '40px', textAlign: 'right' } },
 								String(Math.round((item.opacity === undefined ? 0.5 : item.opacity) * 100)) + '%'),
