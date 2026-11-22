@@ -6,7 +6,6 @@ function AetherOverlayHost() {
 	useAetherTick();
 	return h(react.Fragment, null,
 		h(BootSplash, { key: 'boot' }),
-		h(BalanceWidget, { key: 'widget' }),
 		h(DiagOverlay, { key: 'diag' }),
 		h(MeteorCursor, { key: 'meteor' }),
 	);
