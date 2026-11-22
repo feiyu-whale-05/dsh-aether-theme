@@ -6,7 +6,6 @@ function AetherOverlayHost() {
 	useAetherTick();
 	return h(react.Fragment, null,
 		h(BootSplash, { key: 'boot' }),
-		h(AetherPet, { key: 'pet' }),
 		h(BalanceWidget, { key: 'widget' }),
 		h(DiagOverlay, { key: 'diag' }),
 	);
@@ -196,6 +195,7 @@ var apply = function apply(ctx) {
 					try { if (A.diagTimer) clearInterval(A.diagTimer); } catch (error) { /* ignore */ }
 					try { if (A.observer) A.observer.disconnect(); } catch (error) { /* ignore */ }
 					try { stopUserMarkdown(); } catch (error) { /* ignore */ }
+					try { stopFx(); } catch (error) { /* ignore */ }
 					try { if (A.themeOff) A.themeOff(); } catch (error) { /* ignore */ }
 					try { if (A.mediaOff) A.mediaOff(); } catch (error) { /* ignore */ }
 					try { if (A.motionOff) A.motionOff(); } catch (error) { /* ignore */ }
@@ -203,6 +203,8 @@ var apply = function apply(ctx) {
 					try {
 						document.documentElement.removeAttribute('data-dsh-aether');
 						document.documentElement.removeAttribute('data-dsh-aether-pixel');
+						document.documentElement.removeAttribute('data-glass-blur');
+						document.documentElement.removeAttribute('data-chrome-blur');
 						clearInputHosts();
 					} catch (error) { /* ignore */ }
 					try { delete window.__DSH_AETHER_THEME__; } catch (error) { /* ignore */ }
