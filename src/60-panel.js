@@ -457,6 +457,90 @@ function AdvancedCards(cfg, mutate) {
 			}),
 		),
 		h('div', { className: 'aeth-card' },
+			h('h3', null, '用户气泡左下角装饰'),
+			h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
+				'像 QQ 装扮一样，在用户消息气泡左下角挂一个小挂件（emoji / 文字 / 图片）。'),
+			(function () {
+				var deco = cfg.bubbleDecoration || { enabled: false, text: '🎀', image: '' };
+				return h('div', null,
+					h('div', { className: 'aeth-row' },
+						h('button', {
+							type: 'button',
+							className: 'aeth-btn' + (deco.enabled ? ' primary' : ''),
+							onClick: function () {
+								mutate(function (draft) {
+									draft.bubbleDecoration = Object.assign({}, draft.bubbleDecoration || {}, { enabled: !deco.enabled });
+								}, { wallpaper: false });
+								setTimeout(function () { try { scanBubbleDeco(); } catch (error) { /* ignore */ } }, 60);
+							},
+						}, deco.enabled ? '开' : '关'),
+						h('span', { className: 'aeth-note' }, '挂件'),
+						h('input', {
+							className: 'aeth-input',
+							type: 'text',
+							value: deco.text || '',
+							maxLength: 8,
+							placeholder: '🎀',
+							style: { width: '70px', textAlign: 'center' },
+							onInput: function (event) {
+								var value = event.target.value;
+								mutate(function (draft) {
+									draft.bubbleDecoration = Object.assign({}, draft.bubbleDecoration || {}, { text: value, image: '' });
+								}, { wallpaper: false });
+								setTimeout(function () { try { scanBubbleDeco(); } catch (error) { /* ignore */ } }, 60);
+							},
+						}),
+						h('label', {
+							className: 'aeth-btn',
+							style: { cursor: 'pointer' },
+						}, deco.image ? '换图' : '用图片',
+							h('input', {
+								type: 'file',
+								accept: 'image/*',
+								style: { position: 'absolute', width: '0', height: '0', opacity: '0', overflow: 'hidden' },
+								onChange: function (event) {
+									var file = event.target.files && event.target.files[0];
+									try { event.target.value = ''; } catch (error) { /* ignore */ }
+									if (!file) return;
+									uploadWallpaper(file, 'deco').then(function (uploaded) {
+										mutate(function (draft) {
+											draft.bubbleDecoration = Object.assign({}, draft.bubbleDecoration || {}, { image: uploaded.id, enabled: true });
+										}, { wallpaper: false });
+										setTimeout(function () { try { scanBubbleDeco(); } catch (error) { /* ignore */ } }, 80);
+									}).catch(function (error) {
+										pushLog('error', '气泡装饰上传失败', { message: String(error && error.message) });
+									});
+								},
+							})
+						),
+						deco.image
+							? h('button', {
+								type: 'button',
+								className: 'aeth-btn',
+								onClick: function () {
+									mutate(function (draft) {
+										draft.bubbleDecoration = Object.assign({}, draft.bubbleDecoration || {}, { image: '', text: '🎀' });
+									}, { wallpaper: false });
+									setTimeout(function () { try { scanBubbleDeco(); } catch (error) { /* ignore */ } }, 60);
+								},
+							}, '清除图片')
+							: null,
+					),
+					// 预览
+					h('div', { className: 'aeth-note', style: { marginTop: '6px' } },
+						'预览：消息气泡左下角 ',
+						deco.image
+							? h('img', {
+								src: A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(deco.image) + (A.token ? '&token=' + encodeURIComponent(A.token) : ''),
+								alt: '',
+								style: { width: '22px', height: '22px', objectFit: 'contain', verticalAlign: 'middle', borderRadius: '5px' },
+							})
+							: h('span', { style: { fontSize: '17px', verticalAlign: 'middle' } }, deco.text || '🎀'),
+					),
+				);
+			})(),
+		),
+		h('div', { className: 'aeth-card' },
 			h('h3', null, '用户气泡'),
 			toggleRow('使用官方气泡样式', bubble.official !== false, function (value) {
 				mutate(function (draft) { draft.bubble = Object.assign({}, draft.bubble || {}, { official: value }); }, { wallpaper: false });
