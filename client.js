@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.32';
+		var VERSION = '1.0.33';
 
 		var A = {
 			ctx: null,
@@ -1370,6 +1370,7 @@ window.__ModuleLoader__.load({
 					meteorMounted: Boolean(A.meteorMounted),
 					meteorCanvas: Boolean(A.meteorDebug),
 					meteorEnabled: Boolean(A.meteorEnabled),
+					meteorState: A.meteorState || null,
 					pressRunning: Boolean(A.pressRunning),
 					pressTarget: A.pressDebug || null,
 					glow: Boolean(A.cfg && A.cfg.fx && A.cfg.fx.glow !== false),
