@@ -25,3 +25,13 @@
 - insert:
     - id: cost-meter
       name: dsh-cost-meter
+
+# ── 组合包：片头动画 ──────────────────────────────────────────────────
+# 以太主题不再自带开屏动画，片头交给 dsh-boot-splash-pro（BSD-3-Clause，
+# 本地包：D:/DSH-plugins/dsh-boot-splash-pro）：首帧注入、官方加载卡片不再露脸。
+#
+# 如果你的 profile 已经单独安装过 dsh-boot-splash-pro，请删掉这一段，
+# 否则同一插件会被注册两次。
+- insert:
+    - id: dsh-boot-splash-pro
+      name: dsh-boot-splash-pro
