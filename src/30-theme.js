@@ -283,12 +283,15 @@ function applyAppearance(reason) {
 	var accentReadable = readableOn(accentHex, sidebarSurface, 4.5);
 	var accentInk = inkOn(accentHex, 4.5);
 
-	var chromeOpacity = clamp(glass.chromeOpacity === undefined ? 0.55 : glass.chromeOpacity, 0, 1);
-	var chromeBlur = clamp(glass.chromeBlur === undefined ? 0 : glass.chromeBlur, 0, 24);
+	// Aqua 同款：dark 卡片 #22262f 50%，light 卡片 #fff 42%
+	var chromeDefault = dark ? 0.5 : 0.42;
+	var chromeOpacity = clamp(glass.chromeOpacity === undefined || glass.chromeOpacity === 0 ? chromeDefault : glass.chromeOpacity, 0, 1);
+	var chromeColor = dark ? { r: 34, g: 38, b: 47, a: 1 } : { r: 255, g: 255, b: 255, a: 1 };
+	var chromeBlur = clamp(glass.chromeBlur === undefined ? 14 : glass.chromeBlur, 0, 40);
 
 	var vars = {
 		'--aether-accent': palette.accent,
-		'--aether-chrome-fill': rgba(panel, chromeOpacity),
+		'--aether-chrome-fill': rgba(chromeColor, chromeOpacity),
 		'--aether-chrome-blur': chromeBlur + 'px',
 		'--aether-accent-readable': accentReadable,
 		'--aether-accent-ink': accentInk,
