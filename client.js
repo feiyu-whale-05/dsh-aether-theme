@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.33';
+		var VERSION = '1.0.34';
 
 		var A = {
 			ctx: null,
@@ -699,9 +699,17 @@ window.__ModuleLoader__.load({
 				});
 		}
 
-		function loadState() {
+		function loadState(retried) {
 			return ensureToken().then(function () {
 				return apiFetch('/api/state');
+			}).catch(function (error) {
+				// token 可能来自旧页面：清掉重试一次（会重新 bootstrap）
+				if (!retried && error && (error.status === 401 || error.status === 403)) {
+					A.token = '';
+					return new Promise(function (resolve) { setTimeout(resolve, 1000); })
+						.then(function () { return loadState(true); });
+				}
+				throw error;
 			}).then(function (payload) {
 				A.host.ok = true;
 				A.host.version = payload.version || VERSION;
@@ -2297,7 +2305,26 @@ window.__ModuleLoader__.load({
 			var canvasState = react.useState(null);
 			var canvas = canvasState[0];
 			var setCanvas = canvasState[1];
-			var enabled = Boolean(A.cfg && A.cfg.meteor && A.cfg.meteor.enabled) && moduleOn('theme') && !A.canary.disabled;
+			var switchState = react.useState(false);
+			var enabled = switchState[0];
+			var setEnabled = switchState[1];
+			// 开关状态自己轮询（800ms）：配置异步到达/宿主重渲染时也能自动武装，不再依赖 notify 时机
+			react.useEffect(function () {
+				function sync() {
+					var next = Boolean(A.cfg && A.cfg.meteor && A.cfg.meteor.enabled === true) && !shouldReduceMotion();
+					A.meteorEnabled = next;
+					A.meteorState = {
+						hasCfg: Boolean(A.cfg),
+						enabledRaw: A.cfg && A.cfg.meteor ? A.cfg.meteor.enabled : 'missing',
+						reduceMotion: shouldReduceMotion(),
+						final: next,
+					};
+					setEnabled(function (prev) { return prev === next ? prev : next; });
+				}
+				sync();
+				var timer = setInterval(sync, 800);
+				return function () { clearInterval(timer); };
+			}, []);
 
 			react.useEffect(function () {
 				if (!enabled) {
