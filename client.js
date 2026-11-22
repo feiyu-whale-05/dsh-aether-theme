@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.34';
+		var VERSION = '1.0.35';
 
 		var A = {
 			ctx: null,
@@ -1375,10 +1375,11 @@ window.__ModuleLoader__.load({
 					critters: typeof CRITTERS !== 'undefined' ? CRITTERS.built : null,
 					whaleParticles: typeof WHALE !== 'undefined' ? WHALE.particles.length : null,
 					whaleRunning: typeof WHALE !== 'undefined' ? WHALE.running : null,
-					meteorMounted: Boolean(A.meteorMounted),
-					meteorCanvas: Boolean(A.meteorDebug),
-					meteorEnabled: Boolean(A.meteorEnabled),
-					meteorState: A.meteorState || null,
+					meteorMounted: typeof METEOR !== 'undefined' ? METEOR.running : null,
+					meteorCanvas: typeof METEOR !== 'undefined' ? Boolean(METEOR.canvas) : null,
+					meteorEnabled: typeof meteorEnabled === 'function' ? meteorEnabled() : null,
+					meteorParticles: typeof METEOR !== 'undefined' ? METEOR.particles.length : null,
+					meteorSize: typeof METEOR !== 'undefined' && METEOR.canvas ? (METEOR.canvas.width + 'x' + METEOR.canvas.height) : null,
 					pressRunning: Boolean(A.pressRunning),
 					pressTarget: A.pressDebug || null,
 					glow: Boolean(A.cfg && A.cfg.fx && A.cfg.fx.glow !== false),
@@ -1879,6 +1880,7 @@ window.__ModuleLoader__.load({
 			try { syncFx(); } catch (error) { /* ignore */ }
 			try { syncWhale(); } catch (error) { /* ignore */ }
 			try { syncGlowPress(); } catch (error) { /* ignore */ }
+			try { syncMeteor(); } catch (error) { /* ignore */ }
 
 			pushLog('info', '外观已应用', {
 				reason: reason,
@@ -2295,158 +2297,164 @@ window.__ModuleLoader__.load({
 		}
 
 		// ── 55-meteor.js ────────────────────────────────────────────────────
-		// ── meteor：鼠标流星尾缀（canvas 粒子，零图片） ────────────────────────
-		// 尊重 prefers-reduced-motion：减弱动效时整个模块不启动（连 canvas 都不建）。
-		// 配置：A.cfg.meteor = { enabled, density, hue }
+		// ── meteor：鼠标流星尾缀（纯 DOM + rAF，不依赖 React 生命周期） ─────────
+		// 之前放在 React 组件的 effect 里，受渲染时机/依赖数组影响经常不落地；
+		// 现在与 glow/press 同一套模式：applyAppearance 里 syncMeteor() 直接开关，
+		// 配置满足就创建 canvas，不满足就移除，状态全在模块级。
 
-		function MeteorCursor() {
-			useAetherTick();
-			A.meteorMounted = true;
-			var canvasState = react.useState(null);
-			var canvas = canvasState[0];
-			var setCanvas = canvasState[1];
-			var switchState = react.useState(false);
-			var enabled = switchState[0];
-			var setEnabled = switchState[1];
-			// 开关状态自己轮询（800ms）：配置异步到达/宿主重渲染时也能自动武装，不再依赖 notify 时机
-			react.useEffect(function () {
-				function sync() {
-					var next = Boolean(A.cfg && A.cfg.meteor && A.cfg.meteor.enabled === true) && !shouldReduceMotion();
-					A.meteorEnabled = next;
-					A.meteorState = {
-						hasCfg: Boolean(A.cfg),
-						enabledRaw: A.cfg && A.cfg.meteor ? A.cfg.meteor.enabled : 'missing',
-						reduceMotion: shouldReduceMotion(),
-						final: next,
-					};
-					setEnabled(function (prev) { return prev === next ? prev : next; });
-				}
-				sync();
-				var timer = setInterval(sync, 800);
-				return function () { clearInterval(timer); };
-			}, []);
+		var METEOR = {
+			canvas: null, ctx: null, raf: null, running: false,
+			particles: [], pointer: { x: -9999, y: -9999 }, last: { x: -1, y: -1, t: 0 },
+			bound: false,
+		};
 
-			react.useEffect(function () {
-				if (!enabled) {
-					if (canvas && canvas.parentNode) {
-						try { canvas.parentNode.removeChild(canvas); } catch (error) { /* ignore */ }
-					}
-					return undefined;
-				}
-				if (shouldReduceMotion()) return undefined;
-				var element = document.createElement('canvas');
-				element.id = 'dsh-aether-meteor';
-				element.setAttribute('aria-hidden', 'true');
-				document.body.appendChild(element);
-				setCanvas(element);
-				return function () {
-					try { element.remove(); } catch (error) { /* ignore */ }
-					setCanvas(null);
-				};
-			}, [enabled]);
-
-			react.useEffect(function () {
-				if (!canvas || !enabled) return undefined;
-				var context = canvas.getContext('2d');
-				if (!context) return undefined;
-				var dpr = Math.min(2, window.devicePixelRatio || 1);
-				var particles = [];
-				var frame = null;
-				var last = { x: -1, y: -1, t: 0 };
-				var pointer = { x: -9999, y: -9999 };
-				var density = clamp((A.cfg.meteor && A.cfg.meteor.density) || 1, 0.2, 3);
-				var hueBase = clamp((A.cfg.meteor && A.cfg.meteor.hue) || 222, 0, 360);
-
-				function resize() {
-					canvas.width = Math.round(window.innerWidth * dpr);
-					canvas.height = Math.round(window.innerHeight * dpr);
-					canvas.style.width = '100%';
-					canvas.style.height = '100%';
-					context.setTransform(dpr, 0, 0, dpr, 0, 0);
-				}
-				resize();
-				window.addEventListener('resize', resize);
-
-				function spawn(x, y, dx, dy) {
-					var speed = Math.min(48, Math.sqrt(dx * dx + dy * dy));
-					var count = Math.max(1, Math.round((0.6 + speed / 10) * density));
-					for (var i = 0; i < count; i += 1) {
-						particles.push({
-							x: x + (Math.random() - 0.5) * 6,
-							y: y + (Math.random() - 0.5) * 6,
-							vx: -dx * 0.045 + (Math.random() - 0.5) * 1.4,
-							vy: -dy * 0.045 + (Math.random() - 0.5) * 1.4 - 0.35,
-							life: 1,
-							decay: 0.032 + Math.random() * 0.045,
-							size: 0.9 + Math.random() * 2.2,
-							hue: hueBase + (Math.random() * 70 - 20),
-						});
-					}
-					if (particles.length > 260) particles.splice(0, particles.length - 260);
-				}
-
-				function onMove(event) {
-					var now = performance.now();
-					var x = event.clientX;
-					var y = event.clientY;
-					pointer.x = x;
-					pointer.y = y;
-					var dt = now - last.t;
-					if (last.x >= 0 && dt < 40) {
-						spawn(x, y, x - last.x, y - last.y);
-					}
-					last = { x: x, y: y, t: now };
-				}
-
-				function tick() {
-					context.clearRect(0, 0, window.innerWidth, window.innerHeight);
-					var maxDist = clamp((A.cfg && A.cfg.meteor && A.cfg.meteor.maxDist) || 160, 40, 900);
-					var maxDistSq = maxDist * maxDist;
-					context.globalCompositeOperation = 'lighter';
-					for (var i = particles.length - 1; i >= 0; i -= 1) {
-						var p = particles[i];
-						// 离鼠标太远立即消散（避免拖尾散成一长条）
-						var ddx = p.x - pointer.x;
-						var ddy = p.y - pointer.y;
-						if (ddx * ddx + ddy * ddy > maxDistSq) {
-							particles.splice(i, 1);
-							continue;
-						}
-						p.x += p.vx;
-						p.y += p.vy;
-						p.vx *= 0.93;
-						p.vy = p.vy * 0.93 + 0.02;
-						p.life -= p.decay;
-						if (p.life <= 0) {
-							particles.splice(i, 1);
-							continue;
-						}
-						var alpha = Math.max(0, p.life) * 0.85;
-						var gradient = context.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 4);
-						gradient.addColorStop(0, 'hsla(' + p.hue + ', 100%, 78%, ' + alpha + ')');
-						gradient.addColorStop(0.45, 'hsla(' + (p.hue + 18) + ', 100%, 66%, ' + (alpha * 0.55) + ')');
-						gradient.addColorStop(1, 'hsla(' + (p.hue + 30) + ', 100%, 60%, 0)');
-						context.fillStyle = gradient;
-						context.beginPath();
-						context.arc(p.x, p.y, p.size * 4, 0, Math.PI * 2);
-						context.fill();
-					}
-					context.globalCompositeOperation = 'source-over';
-					frame = requestAnimationFrame(tick);
-				}
-
-				window.addEventListener('mousemove', onMove, { passive: true });
-				frame = requestAnimationFrame(tick);
-				return function () {
-					window.removeEventListener('mousemove', onMove);
-					window.removeEventListener('resize', resize);
-					if (frame !== null) cancelAnimationFrame(frame);
-					particles = [];
-				};
-			}, [canvas, enabled]);
-
-			return null;
+		function meteorEnabled() {
+			if (!A.cfg || !A.cfg.meteor) return false;
+			if (A.cfg.meteor.enabled !== true) return false;
+			if (shouldReduceMotion()) return false;
+			return true;
 		}
+
+		function meteorResize() {
+			var canvas = METEOR.canvas;
+			if (!canvas) return;
+			var dpr = Math.min(2, window.devicePixelRatio || 1);
+			canvas.width = Math.round(window.innerWidth * dpr);
+			canvas.height = Math.round(window.innerHeight * dpr);
+			var ctx = canvas.getContext('2d');
+			if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+			METEOR.ctx = ctx;
+		}
+
+		function meteorSpawn(x, y, dx, dy) {
+			var config = A.cfg && A.cfg.meteor ? A.cfg.meteor : {};
+			var density = clamp(config.density === undefined ? 1 : config.density, 0.2, 3);
+			var hueBase = clamp(config.hue === undefined ? 222 : config.hue, 0, 360);
+			var speed = Math.min(48, Math.sqrt(dx * dx + dy * dy));
+			var count = Math.max(2, Math.round((1.2 + speed / 7) * density));
+			for (var i = 0; i < count; i += 1) {
+				METEOR.particles.push({
+					x: x + (Math.random() - 0.5) * 6,
+					y: y + (Math.random() - 0.5) * 6,
+					vx: -dx * 0.045 + (Math.random() - 0.5) * 1.4,
+					vy: -dy * 0.045 + (Math.random() - 0.5) * 1.4 - 0.35,
+					life: 1,
+					decay: 0.032 + Math.random() * 0.045,
+					size: 1.3 + Math.random() * 2.8,
+					hue: hueBase + (Math.random() * 70 - 20),
+				});
+			}
+			if (METEOR.particles.length > 280) METEOR.particles.splice(0, METEOR.particles.length - 280);
+		}
+
+		function meteorTick() {
+			if (!METEOR.running) return;
+			var ctx = METEOR.ctx;
+			if (!ctx) { METEOR.raf = requestAnimationFrame(meteorTick); return; }
+			var w = window.innerWidth;
+			var h = window.innerHeight;
+			ctx.clearRect(0, 0, w, h);
+			ctx.globalCompositeOperation = 'lighter';
+			var maxDist = clamp((A.cfg && A.cfg.meteor && A.cfg.meteor.maxDist) || 160, 40, 900);
+			var maxDistSq = maxDist * maxDist;
+			for (var i = METEOR.particles.length - 1; i >= 0; i -= 1) {
+				var p = METEOR.particles[i];
+				var ddx = p.x - METEOR.pointer.x;
+				var ddy = p.y - METEOR.pointer.y;
+				if (ddx * ddx + ddy * ddy > maxDistSq) {
+					METEOR.particles.splice(i, 1);
+					continue;
+				}
+				p.x += p.vx;
+				p.y += p.vy;
+				p.vx *= 0.93;
+				p.vy = p.vy * 0.93 + 0.02;
+				p.life -= p.decay;
+				if (p.life <= 0) {
+					METEOR.particles.splice(i, 1);
+					continue;
+				}
+				var alpha = Math.max(0, p.life) * 0.95;
+				var gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 4);
+				gradient.addColorStop(0, 'hsla(' + p.hue + ', 100%, 86%, ' + alpha + ')');
+				gradient.addColorStop(0.45, 'hsla(' + (p.hue + 18) + ', 100%, 72%, ' + (alpha * 0.7) + ')');
+				gradient.addColorStop(1, 'hsla(' + (p.hue + 30) + ', 100%, 60%, 0)');
+				ctx.fillStyle = gradient;
+				ctx.beginPath();
+				ctx.arc(p.x, p.y, p.size * 4, 0, Math.PI * 2);
+				ctx.fill();
+			}
+			ctx.globalCompositeOperation = 'source-over';
+			METEOR.raf = requestAnimationFrame(meteorTick);
+		}
+
+		function meteorOnMove(event) {
+			var now = performance.now();
+			var x = event.clientX;
+			var y = event.clientY;
+			METEOR.pointer.x = x;
+			METEOR.pointer.y = y;
+			var dt = now - METEOR.last.t;
+			if (METEOR.last.x >= 0 && dt < 320) {
+				meteorSpawn(x, y, x - METEOR.last.x, y - METEOR.last.y);
+			}
+			METEOR.last = { x: x, y: y, t: now };
+		}
+
+		function startMeteor() {
+			if (METEOR.running) return;
+			if (!meteorEnabled()) return;
+			var canvas = document.createElement('canvas');
+			canvas.id = 'dsh-aether-meteor';
+			canvas.setAttribute('aria-hidden', 'true');
+			canvas.style.position = 'fixed';
+			canvas.style.left = '0';
+			canvas.style.top = '0';
+			canvas.style.width = '100vw';
+			canvas.style.height = '100vh';
+			canvas.style.zIndex = '2147482999';
+			canvas.style.pointerEvents = 'none';
+			document.body.appendChild(canvas);
+			METEOR.canvas = canvas;
+			meteorResize();
+			if (!METEOR.bound) {
+				METEOR.bound = true;
+				window.addEventListener('mousemove', meteorOnMove, { passive: true });
+				window.addEventListener('resize', function () { if (METEOR.running) meteorResize(); }, { passive: true });
+			}
+			METEOR.running = true;
+			METEOR.raf = requestAnimationFrame(meteorTick);
+			pushLog('info', '流星尾缀已启动', { w: canvas.width, h: canvas.height });
+		}
+
+		function stopMeteor() {
+			METEOR.running = false;
+			if (METEOR.raf !== null) {
+				try { cancelAnimationFrame(METEOR.raf); } catch (error) { /* ignore */ }
+				METEOR.raf = null;
+			}
+			if (METEOR.bound) {
+				try { window.removeEventListener('mousemove', meteorOnMove); } catch (error) { /* ignore */ }
+				METEOR.bound = false;
+			}
+			if (METEOR.canvas) {
+				try { METEOR.canvas.remove(); } catch (error) { /* ignore */ }
+				METEOR.canvas = null;
+			}
+			METEOR.ctx = null;
+			METEOR.particles = [];
+		}
+
+		function syncMeteor() {
+			if (!meteorEnabled()) { stopMeteor(); return; }
+			if (!METEOR.running || !METEOR.canvas || !document.body.contains(METEOR.canvas)) {
+				stopMeteor();
+				startMeteor();
+			}
+		}
+
+		// 保留组件（overlay 里不再使用，仅为兼容旧引用）
+		function MeteorCursor() { return null; }
 
 		// ── 56-particles.js ─────────────────────────────────────────────────
 		// ── critters：背景小鱼 / 气泡 / 浮游点（参考 dsh-client-ui-aqua 的方案） ──
@@ -3805,11 +3813,10 @@ window.__ModuleLoader__.load({
 						h('b', null, '下压状态'), h('span', { className: A.pressRunning ? 'aeth-ok' : 'aeth-bad' },
 							A.pressRunning ? ('监听中（' + Math.round(TILT_MAX / 0.01745 * 10) / 10 + '° 倾斜）') : '未启动'),
 						h('b', null, '下压目标'), h('span', null, A.pressDebug ? (A.pressDebug.tag + '.' + (A.pressDebug.cls.split(' ')[0] || '') + (A.pressDebug.position ? ' [' + A.pressDebug.position + ']' : '')) : '（把指针移到对话框上再看）'),
-						h('b', null, '流星尾缀'), h('span', { className: A.meteorDebug ? 'aeth-ok' : 'aeth-bad' },
-							A.meteorDebug ? 'canvas 已挂载（' + A.meteorDebug.canvas.width + '×' + A.meteorDebug.canvas.height + '）'
-								: (!A.meteorMounted ? '组件未渲染'
-									: (shouldReduceMotion() ? 'reduced-motion 静默'
-										: (A.meteorEnabled ? '已启用但 canvas 未挂载' : '开关未开')))),
+						h('b', null, '流星尾缀'), h('span', { className: (typeof METEOR !== 'undefined' && METEOR.canvas) ? 'aeth-ok' : 'aeth-bad' },
+							(typeof METEOR !== 'undefined' && METEOR.canvas)
+								? ('运行中 · canvas ' + METEOR.canvas.width + '×' + METEOR.canvas.height + ' · 粒子 ' + METEOR.particles.length)
+								: (shouldReduceMotion() ? 'reduced-motion 静默' : (meteorEnabled() ? '已启用但未启动' : '开关未开'))),
 						h('b', null, '粒子/小鱼'), h('span', { className: (typeof CRITTERS !== 'undefined' && CRITTERS.built > 0) ? 'aeth-ok' : 'aeth-bad' },
 							(typeof CRITTERS !== 'undefined' && CRITTERS.built > 0)
 								? CRITTERS.built + ' 个节点已注入'
@@ -3821,11 +3828,13 @@ window.__ModuleLoader__.load({
 						h('button', {
 							className: 'aeth-btn',
 							onClick: function () {
-								if (!A.meteorDebug || !A.meteorDebug.spawn) { setStatus('流星 canvas 未挂载'); setTimeout(function () { setStatus(''); }, 1600); return; }
+								if (typeof METEOR === 'undefined' || !METEOR.running) { setStatus('流星未启动（检查开关/减弱动效）'); setTimeout(function () { setStatus(''); }, 1800); return; }
 								var cx = Math.round(window.innerWidth / 2);
 								var cy = Math.round(window.innerHeight / 2);
-								for (var i = 0; i < 30; i += 1) {
-									A.meteorDebug.spawn(cx + (i - 15) * 6, cy + (i % 5) * 4, 12, 6);
+								METEOR.pointer.x = cx;
+								METEOR.pointer.y = cy;
+								for (var i = 0; i < 24; i += 1) {
+									meteorSpawn(cx + (i - 12) * 7, cy + (i % 6) * 5, 14, 8);
 								}
 							},
 						}, '测试流星'),
@@ -4237,7 +4246,6 @@ window.__ModuleLoader__.load({
 			return h(react.Fragment, null,
 				h(BootSplash, { key: 'boot' }),
 				h(DiagOverlay, { key: 'diag' }),
-				h(MeteorCursor, { key: 'meteor' }),
 			);
 		}
 
@@ -4428,6 +4436,7 @@ window.__ModuleLoader__.load({
 							try { stopFx(); } catch (error) { /* ignore */ }
 							try { whaleStop(); } catch (error) { /* ignore */ }
 							try { stopGlow(); stopPress(); } catch (error) { /* ignore */ }
+							try { stopMeteor(); } catch (error) { /* ignore */ }
 							try { if (A.themeOff) A.themeOff(); } catch (error) { /* ignore */ }
 							try { if (A.mediaOff) A.mediaOff(); } catch (error) { /* ignore */ }
 							try { if (A.motionOff) A.motionOff(); } catch (error) { /* ignore */ }
