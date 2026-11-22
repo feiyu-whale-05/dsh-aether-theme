@@ -196,6 +196,7 @@ var apply = function apply(ctx) {
 					try { if (A.observer) A.observer.disconnect(); } catch (error) { /* ignore */ }
 					try { stopUserMarkdown(); } catch (error) { /* ignore */ }
 					try { stopFx(); } catch (error) { /* ignore */ }
+					try { whaleStop(); } catch (error) { /* ignore */ }
 					try { if (A.themeOff) A.themeOff(); } catch (error) { /* ignore */ }
 					try { if (A.mediaOff) A.mediaOff(); } catch (error) { /* ignore */ }
 					try { if (A.motionOff) A.motionOff(); } catch (error) { /* ignore */ }
