@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.53';
+var VERSION = '1.0.54';
 
 var A = {
 	ctx: null,
@@ -542,10 +542,10 @@ function defaultConfigFallback() {
 			chromeOpacity: 0, chromeBlur: 14,
 		// 分区背景：每个区域可单独设颜色与不透明度；enabled=false 时跟随外壳统一色
 		backgrounds: {
-			sidebar: { enabled: false, image: '', color: '#22262f', opacity: 0.5 },
-			input: { enabled: false, image: '', color: '#22262f', opacity: 0.5 },
-			bubble: { enabled: false, image: '', color: '#dbe7ff', opacity: 0.55 },
-			topbar: { enabled: false, image: '', color: '#22262f', opacity: 0.5 },
+			sidebar: { enabled: false, image: '', color: '#22262f', opacity: 0 },
+			input: { enabled: false, image: '', color: '#22262f', opacity: 0 },
+			bubble: { enabled: false, image: '', color: '#dbe7ff', opacity: 0 },
+			topbar: { enabled: false, image: '', color: '#22262f', opacity: 0 },
 			titlebar: { enabled: false, image: '', color: '#1b1f27', opacity: 0.6 },
 			settings: { enabled: false, image: '', color: '#22262f', opacity: 0.6 },
 		},
@@ -774,23 +774,23 @@ function buildStyleText() {
 		// 分区背景图（在底色之上平铺/裁切）
 		'html[data-dsh-aether] [class*="sidebarCol"] {',
 		'  background-image: var(--aether-sidebar-img, none) !important;',
-		'  background-size: cover; background-position: center; background-repeat: no-repeat;',
+		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
 		'html[data-dsh-aether] [data-aether-input-host] {',
 		'  background-image: var(--aether-input-img, none) !important;',
-		'  background-size: cover; background-position: center; background-repeat: no-repeat;',
+		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
 		'html[data-dsh-aether] header {',
 		'  background-image: var(--aether-topbar-img, none) !important;',
-		'  background-size: cover; background-position: center; background-repeat: no-repeat;',
+		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
 		'html[data-dsh-aether][data-windows-titlebar] [data-aether-frame]::before {',
 		'  background-image: var(--aether-titlebar-img, none) !important;',
-		'  background-size: cover; background-position: center; background-repeat: no-repeat;',
+		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
 		'html[data-dsh-aether] [data-global-panel] {',
 		'  background-image: var(--aether-settings-img, none) !important;',
-		'  background-size: cover; background-position: center; background-repeat: no-repeat;',
+		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
 		'html[data-dsh-aether] body {',
 		'  --dsw-specific-bubble-image: var(--aether-bubble-img, none);',
