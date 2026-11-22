@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.45';
+		var VERSION = '1.0.46';
 
 		var A = {
 			ctx: null,
@@ -993,6 +993,15 @@ window.__ModuleLoader__.load({
 				'html[data-dsh-aether] [class*="sidebarCol"]:has([role="dialog"]) { backdrop-filter: none !important; }',
 				// 输入框卡片底色统一到外壳变量（侧栏与顶栏由宿主的 frame/sidebar-fill 变量控制，
 				// 不再强行覆盖它们自身的背景，避免盖住侧栏里的折叠按钮等控件）
+				// 设置/图片查看的遮罩层用的是硬编码 #00000080（不是 CSS 变量），
+				// 通过 CSS Modules 的 _mask 类名直接清掉底色。
+				'html[data-dsh-aether] [class*="_mask"],',
+				'html[data-dsh-aether] [class*="-mask"],',
+				'html[data-dsh-aether] [class*="_Mask"],',
+				'html[data-dsh-aether] [class*="_scrim"],',
+				'html[data-dsh-aether] [class*="_backdrop"] {',
+				'  background-color: rgba(0, 0, 0, 0) !important;',
+				'}',
 				'html[data-dsh-aether] [data-aether-input-host] {',
 				'  background-color: var(--aether-chrome-fill) !important;',
 				'}',
