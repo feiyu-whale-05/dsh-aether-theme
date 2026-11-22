@@ -22,7 +22,13 @@ function renderBubbleDeco(node, cfg) {
 				img.src = url;
 				img.alt = '';
 				img.draggable = false;
-				img.onerror = function () { try { img.remove(); } catch (error) { /* ignore */ } };
+				img.onerror = function () {
+					// 图片加载失败时回落到 emoji，避免装饰位置空着
+					try {
+						img.remove();
+						node.textContent = (A.cfg && A.cfg.bubbleDecoration && A.cfg.bubbleDecoration.text) || '🎀';
+					} catch (error) { /* ignore */ }
+				};
 				node.appendChild(img);
 			}
 		} else {
