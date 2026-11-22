@@ -3496,6 +3496,9 @@ window.__ModuleLoader__.load({
 						h('b', null, '#root'), h('span', null, String(anchors.root)),
 						h('b', null, 'data-platform'), h('span', null, String(anchors.platform)),
 						h('b', null, '配置文件'), h('span', null, (A.host.diag && A.host.diag.configFile) || '~/.dsh/aether-theme/config.json'),
+						h('b', null, '流星尾缀'), h('span', { className: A.meteorDebug ? 'aeth-ok' : 'aeth-bad' },
+							A.meteorDebug ? 'canvas 已挂载（' + A.meteorDebug.canvas.width + '×' + A.meteorDebug.canvas.height + '）'
+								: (shouldReduceMotion() ? 'reduced-motion 静默' : (A.meteorEnabled ? '已启用但 canvas 未挂载' : '开关未开'))),
 						h('b', null, '粒子/小鱼'), h('span', { className: (typeof CRITTERS !== 'undefined' && CRITTERS.built > 0) ? 'aeth-ok' : 'aeth-bad' },
 							(typeof CRITTERS !== 'undefined' && CRITTERS.built > 0)
 								? CRITTERS.built + ' 个节点已注入'
@@ -3504,6 +3507,17 @@ window.__ModuleLoader__.load({
 					h('div', { className: 'aeth-row', style: { marginTop: '10px' } },
 						h('button', { className: 'aeth-btn primary', onClick: exportDiag }, '导出 diag.json'),
 						h('button', { className: 'aeth-btn', onClick: function () { reportDiag('panel'); } }, '刷新诊断'),
+						h('button', {
+							className: 'aeth-btn',
+							onClick: function () {
+								if (!A.meteorDebug || !A.meteorDebug.spawn) { setStatus('流星 canvas 未挂载'); setTimeout(function () { setStatus(''); }, 1600); return; }
+								var cx = Math.round(window.innerWidth / 2);
+								var cy = Math.round(window.innerHeight / 2);
+								for (var i = 0; i < 30; i += 1) {
+									A.meteorDebug.spawn(cx + (i - 15) * 6, cy + (i % 5) * 4, 12, 6);
+								}
+							},
+						}, '测试流星'),
 						toggleRow(t('section.diag') + ' 浮层', A.cfg.diag.showOverlay, function (value) {
 							A.cfg.diag.showOverlay = value;
 							applyAppearance('diag');
