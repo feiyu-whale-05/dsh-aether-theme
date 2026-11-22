@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.29';
+var VERSION = '1.0.30';
 
 var A = {
 	ctx: null,
@@ -688,10 +688,12 @@ function buildStyleText() {
 		'html[data-dsh-aether] [data-aether-input-host] {',
 		'  background-color: var(--aether-chrome-fill) !important;',
 		'}',
-		// Windows 标题栏（「应用/编辑」那行）：宿主 .frame 与 .frame::before 各铺了一层
-		// 同一半透明色，叠起来比侧栏深一倍。把 ::before 那层设为透明，只留 frame 一层。
+		// Windows 标题栏（「应用/编辑」那行）：
+		// 侧栏 = frame + sidebarCol 两层半透明（≈0.75），标题栏只有 frame 一层（0.5）会显得浅。
+		// 这里恢复 ::before 的一层，并额外叠 --aether-titlebar-extra（默认 0.08）的暗色，
+		// 让标题栏与侧栏同档、略深一点点。
 		'html[data-windows-titlebar][data-dsh-aether] [data-aether-frame]::before {',
-		'  background: transparent !important;',
+		'  background: linear-gradient(rgba(0, 0, 0, var(--aether-titlebar-extra, .08)), rgba(0, 0, 0, var(--aether-titlebar-extra, .08))), var(--aether-chrome-fill) !important;',
 		'}',
 		// 顶栏（Windows 标题栏带「应用/编辑」那行）：frame 背景已由 sidebar-fill 控制，
 		// 这里把 sidebar-fill 直接绑到同一个 chrome 变量
