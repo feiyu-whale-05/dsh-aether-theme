@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.21';
+		var VERSION = '1.0.23';
 
 		var A = {
 			ctx: null,
@@ -2265,6 +2265,7 @@ window.__ModuleLoader__.load({
 
 		function MeteorCursor() {
 			useAetherTick();
+			A.meteorMounted = true;
 			var canvasState = react.useState(null);
 			var canvas = canvasState[0];
 			var setCanvas = canvasState[1];
@@ -3498,7 +3499,9 @@ window.__ModuleLoader__.load({
 						h('b', null, '配置文件'), h('span', null, (A.host.diag && A.host.diag.configFile) || '~/.dsh/aether-theme/config.json'),
 						h('b', null, '流星尾缀'), h('span', { className: A.meteorDebug ? 'aeth-ok' : 'aeth-bad' },
 							A.meteorDebug ? 'canvas 已挂载（' + A.meteorDebug.canvas.width + '×' + A.meteorDebug.canvas.height + '）'
-								: (shouldReduceMotion() ? 'reduced-motion 静默' : (A.meteorEnabled ? '已启用但 canvas 未挂载' : '开关未开'))),
+								: (!A.meteorMounted ? '组件未渲染'
+									: (shouldReduceMotion() ? 'reduced-motion 静默'
+										: (A.meteorEnabled ? '已启用但 canvas 未挂载' : '开关未开')))),
 						h('b', null, '粒子/小鱼'), h('span', { className: (typeof CRITTERS !== 'undefined' && CRITTERS.built > 0) ? 'aeth-ok' : 'aeth-bad' },
 							(typeof CRITTERS !== 'undefined' && CRITTERS.built > 0)
 								? CRITTERS.built + ' 个节点已注入'
@@ -3927,6 +3930,7 @@ window.__ModuleLoader__.load({
 				h(BootSplash, { key: 'boot' }),
 				h(BalanceWidget, { key: 'widget' }),
 				h(DiagOverlay, { key: 'diag' }),
+				h(MeteorCursor, { key: 'meteor' }),
 			);
 		}
 
