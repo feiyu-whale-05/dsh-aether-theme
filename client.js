@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.25';
+		var VERSION = '1.0.26';
 
 		var A = {
 			ctx: null,
@@ -1101,6 +1101,11 @@ window.__ModuleLoader__.load({
 				'#dsh-aether-whale { position:absolute; z-index:2; transform:translate(-50%,-50%); pointer-events:none; mix-blend-mode:screen; opacity:.92; }',
 				'html[data-dsh-aether] body:not([data-ds-dark-theme]) #dsh-aether-whale { mix-blend-mode:multiply; }',
 				'#dsh-aether-whale canvas { width:100%; height:100%; display:block; }',
+				// 侧栏下压：内阴影（不创建 containing block，不影响 fixed 按钮）
+				'html[data-dsh-aether] [data-aether-pressed="1"] {',
+				'  box-shadow: inset 0 0 80px rgba(0, 0, 0, .26) !important;',
+				'  transition: box-shadow .18s ease;',
+				'}',
 				'#dsh-aether-critters svg { position:absolute; display:block; }',
 				'.aether-critter.fish { color:#9cc0f2; opacity:.42; animation: aether-fish-swim 12s ease-in-out infinite; will-change:transform; filter: drop-shadow(0 0 6px rgba(124,170,240,.35)); }',
 				'.aether-critter.fish.fish-left { animation-name: aether-fish-swim-left; animation-duration:16s; }',
@@ -2891,8 +2896,39 @@ window.__ModuleLoader__.load({
 			return true;
 		}
 
+		var PRESS_PANE_SELECTOR = [
+			'[data-global-panel]',
+			'[role="dialog"]',
+			'[aria-modal="true"]',
+			'[class*="dialog"]',
+			'[class*="Dialog"]',
+			'[class*="modal"]',
+			'[class*="Modal"]',
+			'[class*="sidebarCol"]',
+			'[class*="sidebar"]',
+		].join(', ');
+
+		/** 侧栏：不做 3D transform（会给内部 fixed 元素建包含块），用内阴影做下压观感。 */
+		function pressIsSidebar(pane) {
+			return Boolean(pane && pane.matches && pane.matches('[class*="sidebarCol"], [class*="sidebar"]'));
+		}
+
+		function pressSoftDown(pane, on) {
+			if (!pane) return;
+			try {
+				if (on) pane.setAttribute('data-aether-pressed', '1');
+				else pane.removeAttribute('data-aether-pressed');
+			} catch (error) { /* ignore */ }
+		}
+
+		function pressFindPane(target) {
+			if (!target || typeof target.closest !== 'function') return null;
+			return target.closest(PRESS_PANE_SELECTOR);
+		}
+
 		function pressNeutral(pane) {
 			if (!pane) return;
+			pressSoftDown(pane, false);
 			pane.style.transform = 'perspective(' + TILT_PERSPECTIVE + 'px) rotateX(0rad) rotateY(0rad) scale(1)';
 			var old = PRESS.timers.get(pane);
 			if (old) clearTimeout(old);
@@ -2910,6 +2946,10 @@ window.__ModuleLoader__.load({
 			PRESS.raf = null;
 			var pane = PRESS.current;
 			if (!pane || !pressTiltable(pane)) return;
+			if (pressIsSidebar(pane)) {
+				pressSoftDown(pane, true);
+				return;
+			}
 			var rect = pane.getBoundingClientRect();
 			if (rect.width === 0 || rect.height === 0) return;
 			var rx = ((GLOW.x - rect.left) / rect.width) * 2 - 1;
@@ -2926,7 +2966,7 @@ window.__ModuleLoader__.load({
 		function pressOnMove(event) {
 			if (!PRESS.running) return;
 			var target = event.target;
-			var pane = target && target.closest ? target.closest('[data-global-panel], [role="dialog"]') : null;
+			var pane = pressFindPane(target);
 			if (pane !== PRESS.current) {
 				if (PRESS.current) pressNeutral(PRESS.current);
 				PRESS.current = pane;
