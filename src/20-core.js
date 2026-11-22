@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.60';
+var VERSION = '1.0.61';
 
 var A = {
 	ctx: null,
@@ -768,7 +768,7 @@ function buildStyleText() {
 		'html[data-windows-titlebar][data-dsh-aether] [data-aether-frame]::before {',
 		'  background: linear-gradient(rgba(0, 0, 0, var(--aether-titlebar-extra, .08)), rgba(0, 0, 0, var(--aether-titlebar-extra, .08))), var(--aether-titlebar-bg, var(--aether-chrome-fill)) !important;',
 		'}',
-		'html[data-dsh-aether] header { background-color: var(--aether-topbar-bg, transparent) !important; }',
+		'html[data-dsh-aether] header:has([role="tablist"]), html[data-dsh-aether] header:has([data-tab]) { background-color: var(--aether-topbar-bg, transparent) !important; }',
 		'html[data-dsh-aether] [data-aether-input-host] { background-color: var(--aether-input-bg, var(--aether-chrome-fill)) !important; }',
 		'html[data-dsh-aether] [data-global-panel] { background-color: var(--aether-settings-bg, transparent) !important; }',
 		'html[data-dsh-aether] body { --dsw-specific-bubble: var(--aether-bubble-bg, var(--dsw-specific-bubble-default, #dbe7ff8a)) !important; }',
@@ -781,7 +781,7 @@ function buildStyleText() {
 		'  background-image: var(--aether-input-img, none) !important;',
 		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
-		'html[data-dsh-aether] header {',
+		'html[data-dsh-aether] header:has([role="tablist"]), html[data-dsh-aether] header:has([data-tab]) {',
 		'  background-image: var(--aether-topbar-img, none) !important;',
 		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
