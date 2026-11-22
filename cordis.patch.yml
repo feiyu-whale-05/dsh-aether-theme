@@ -14,3 +14,14 @@
 - insert:
     - id: aether-theme
       name: dsh-aether-theme
+
+# ── 组合包：费用统计伙伴 ──────────────────────────────────────────────
+# 以太主题不再自带简陋的余额挂件，费用条交给 dsh-cost-meter（MIT，
+# https://github.com/Han-1413141/dsh-cost-meter）：按会话统计 token/成本、
+# 余额与峰谷价提醒、多厂商价格目录。
+#
+# 如果你的 profile 已经单独安装过 dsh-cost-meter，请删掉下面这一段，
+# 否则同一插件会被注册两次。
+- insert:
+    - id: cost-meter
+      name: dsh-cost-meter
