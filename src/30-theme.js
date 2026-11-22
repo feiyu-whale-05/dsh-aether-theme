@@ -241,6 +241,8 @@ function applyAppearance(reason) {
 
 	var alphaBase = baseAlpha;
 	var alphaSidebar = regionAlpha('sidebar');
+	// 外壳统一：侧栏暗度直接跟 chromeOpacity（6 区里的 sidebar 滑杆仍可微调 alphaSidebar 变量）
+
 	var alphaLayers = regionAlpha('layers');
 	var alphaMenu = Math.max(regionAlpha('menu'), 0.5);
 	var alphaInput = regionAlpha('input');
@@ -281,8 +283,13 @@ function applyAppearance(reason) {
 	var accentReadable = readableOn(accentHex, sidebarSurface, 4.5);
 	var accentInk = inkOn(accentHex, 4.5);
 
+	var chromeOpacity = clamp(glass.chromeOpacity === undefined ? 0.55 : glass.chromeOpacity, 0, 1);
+	var chromeBlur = clamp(glass.chromeBlur === undefined ? 0 : glass.chromeBlur, 0, 24);
+
 	var vars = {
 		'--aether-accent': palette.accent,
+		'--aether-chrome-fill': rgba(panel, chromeOpacity),
+		'--aether-chrome-blur': chromeBlur + 'px',
 		'--aether-accent-readable': accentReadable,
 		'--aether-accent-ink': accentInk,
 		'--aether-brand-blue': brandBlue,
@@ -333,7 +340,7 @@ function applyAppearance(reason) {
 		setVar('--aether-wenxin-a', dark ? '#3d7dfe' : '#2f6bff');
 		setVar('--aether-wenxin-b', dark ? '#6a59fe' : '#5b48f0');
 		setVar('--aether-wenxin-c', dark ? '#9142ff' : '#7b2ee0');
-		if (Array.isArray(glass.inputFills) && glass.inputFills.indexOf('wenxin') !== -1) {
+		if (moduleOn('inputGlow')) {
 			document.documentElement.setAttribute('data-aether-input', 'wenxin');
 		} else {
 			document.documentElement.removeAttribute('data-aether-input');
@@ -436,6 +443,8 @@ function applyAppearance(reason) {
 		setVar('--aether-glass-blur', '0px');
 		setVar('--aether-bg-blur', '0px');
 	}
+
+	try { syncFx(); } catch (error) { /* ignore */ }
 
 	pushLog('info', '外观已应用', {
 		reason: reason,
