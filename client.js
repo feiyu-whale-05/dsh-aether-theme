@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.15';
+		var VERSION = '1.0.16';
 
 		var A = {
 			ctx: null,
@@ -959,11 +959,11 @@ window.__ModuleLoader__.load({
 				'  backdrop-filter: none !important;',
 				'}',
 				// 壁纸层：双缓冲淡入淡出（防闪烁）
-				'#dsh-aether-stage > .aether-wall { position:absolute; inset:0; opacity:0; transition:opacity var(--aether-transition, 420ms) ease; will-change:opacity; }',
+				'#dsh-aether-stage > .aether-wall { position:absolute; inset:0; z-index:1; opacity:0; transition:opacity var(--aether-transition, 420ms) ease; will-change:opacity; }',
 				'#dsh-aether-stage > .aether-wall.is-on { opacity:1; }',
 				'#dsh-aether-stage > .aether-wall > img, #dsh-aether-stage > .aether-wall > video { width:100%; height:100%; display:block; object-fit:cover; }',
 				'#dsh-aether-stage > .aether-wall > img, #dsh-aether-stage > .aether-wall > video, #dsh-aether-stage > .aether-wall > .aether-css { filter: brightness(var(--aether-wall-brightness, 0.85)); }',
-				'#dsh-aether-stage > .aether-veil { position:absolute; inset:0; background: var(--aether-veil); pointer-events:none; mix-blend-mode: var(--aether-content-blend, normal); }',
+				'#dsh-aether-stage > .aether-veil { position:absolute; inset:0; z-index:2; background: var(--aether-veil); pointer-events:none; mix-blend-mode: var(--aether-content-blend, normal); }',
 				// 纯 CSS 预设背景
 				'#dsh-aether-stage .aether-css { position:absolute; inset:0; }',
 				'#dsh-aether-stage .aether-css.aurora { background: radial-gradient(120% 90% at 15% 10%, #2b3a67 0%, transparent 55%), radial-gradient(100% 80% at 85% 20%, #5b3a7e 0%, transparent 60%), radial-gradient(120% 100% at 50% 100%, #12343b 0%, transparent 65%), linear-gradient(160deg, #0b1020 0%, #101a2e 50%, #0a0f18 100%); animation: aether-drift 28s ease-in-out infinite alternate; }',
@@ -1070,12 +1070,12 @@ window.__ModuleLoader__.load({
 				// 流星尾缀画布
 				'#dsh-aether-meteor { position: fixed; inset: 0; z-index: 2147482999; pointer-events: none; }',
 				// 海洋小生物（参考 dsh-client-ui-aqua 的 SVG + CSS 动画方案）
-				'#dsh-aether-critters { position:absolute; inset:0; overflow:hidden; pointer-events:none; }',
+				'#dsh-aether-critters { position:absolute; inset:0; z-index:3; overflow:hidden; pointer-events:none; }',
 				'#dsh-aether-critters svg { position:absolute; display:block; }',
-				'.aether-critter.fish { color:#7ea4df; opacity:.22; animation: aether-fish-swim 12s ease-in-out infinite; will-change:transform; }',
+				'.aether-critter.fish { color:#9cc0f2; opacity:.42; animation: aether-fish-swim 12s ease-in-out infinite; will-change:transform; filter: drop-shadow(0 0 6px rgba(124,170,240,.35)); }',
 				'.aether-critter.fish.fish-left { animation-name: aether-fish-swim-left; animation-duration:16s; }',
-				'.aether-critter.bubble { color:#a9c6ef; opacity:0; animation: aether-bubble-rise 9s ease-in infinite; }',
-				'.aether-critter.plankton { color:#7ea4df; animation: aether-plankton 5s ease-in-out infinite; }',
+				'.aether-critter.bubble { color:#bcd6f7; opacity:0; animation: aether-bubble-rise 9s ease-in infinite; }',
+				'.aether-critter.plankton { color:#a9c6ef; animation: aether-plankton 5s ease-in-out infinite; filter: drop-shadow(0 0 5px rgba(140,185,255,.5)); }',
 				'@keyframes aether-fish-swim {',
 				'  0% { transform: translate(0,0) rotate(-5deg); }',
 				'  30% { transform: translate(40px,-15px) rotate(4deg); }',
@@ -1090,12 +1090,12 @@ window.__ModuleLoader__.load({
 				'}',
 				'@keyframes aether-bubble-rise {',
 				'  0% { opacity:0; transform: translate(0,0); }',
-				'  10% { opacity:.5; }',
+				'  10% { opacity:.62; }',
 				'  100% { opacity:0; transform: translate(8px,-150px); }',
 				'}',
 				'@keyframes aether-plankton {',
-				'  0%, 100% { opacity:.1; }',
-				'  50% { opacity:.38; }',
+				'  0%, 100% { opacity:.16; }',
+				'  50% { opacity:.55; }',
 				'}',
 				'.aeth-head { display:flex; gap:10px; align-items:baseline; margin-bottom: 12px; flex-wrap: wrap; }',
 				'.aeth-title { font-size: 16px; font-weight: 600; }',
@@ -3153,6 +3153,10 @@ window.__ModuleLoader__.load({
 						h('b', null, '#root'), h('span', null, String(anchors.root)),
 						h('b', null, 'data-platform'), h('span', null, String(anchors.platform)),
 						h('b', null, '配置文件'), h('span', null, (A.host.diag && A.host.diag.configFile) || '~/.dsh/aether-theme/config.json'),
+						h('b', null, '粒子/小鱼'), h('span', { className: (typeof CRITTERS !== 'undefined' && CRITTERS.built > 0) ? 'aeth-ok' : 'aeth-bad' },
+							(typeof CRITTERS !== 'undefined' && CRITTERS.built > 0)
+								? CRITTERS.built + ' 个节点已注入'
+								: (shouldReduceMotion() ? '已被 reduced-motion 静默' : '未注入')),
 					),
 					h('div', { className: 'aeth-row', style: { marginTop: '10px' } },
 						h('button', { className: 'aeth-btn primary', onClick: exportDiag }, '导出 diag.json'),
