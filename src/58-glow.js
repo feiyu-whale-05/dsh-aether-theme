@@ -130,8 +130,7 @@ function pressFindPane(target) {
 	if (!target) return null;
 	// 先找「内层浮层」：对话框/弹窗通常是 fixed/absolute 的大容器，
 	// 优先级高于外层 [data-global-panel]（否则倾斜会落在外层内容区上，视觉上没反应）。
-	var floating = pressFindFloatingPane(target);
-	if (floating) return floating;
+	// 不再做「浮动浮层兜底」：设置对话框/设置页都不该被下压
 	if (typeof target.closest !== 'function') return null;
 	return target.closest(PRESS_PANE_SELECTOR);
 }
