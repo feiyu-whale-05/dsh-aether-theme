@@ -75,27 +75,20 @@ function stopGlow() {
 function pressTiltable(pane) {
 	if (!pane) return false;
 	if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+	// Aqua 规则：侧栏里打开 dialog 时不做 tilt
+	if (pressIsSidebar(pane) && document.querySelector('[role="dialog"]') !== null) return false;
 	return true;
 }
 
-// 下压只作用于「对话框」和「侧栏」：
-//   · 主面板（设置页/图片预览/插件列表…= [data-global-panel]）不倾斜
-//   · 聊天输入卡片、消息气泡等也都不碰
+// 下压只作用于「聊天输入卡片」和「侧边栏」，全部用 Aqua 的 tilt 参数：
+//   · 设置对话框、主面板（设置页/图片预览/插件列表）、消息气泡都不下压
 var PRESS_PANE_SELECTOR = [
-	'[role="dialog"]',
-	'[aria-modal="true"]',
-	'[class*="dialog"]',
-	'[class*="Dialog"]',
-	'[class*="modal"]',
-	'[class*="Modal"]',
-	'[class*="sheet"]',
-	'[class*="Sheet"]',
 	'[class*="sidebarCol"]',
 	'[class*="sidebar"]',
 	'[data-aether-input-host]',
 ].join(', ');
 
-/** 侧栏：不做 3D transform（会给内部 fixed 元素建包含块），用内阴影做下压观感。 */
+/** Aqua 同款：侧栏也做 3D tilt；但侧栏内存在 dialog 时跳过（避免给 fixed 元素建包含块）。 */
 function pressIsSidebar(pane) {
 	return Boolean(pane && pane.matches && pane.matches('[class*="sidebarCol"], [class*="sidebar"]'));
 }
@@ -115,8 +108,9 @@ function pressFindFloatingPane(target) {
 		var depth = 0;
 		while (node && node !== document.body && depth < 10) {
 			var style = window.getComputedStyle(node);
-			// 排除主面板（含设置页/图片预览/插件列表）与插件自己的面板
-			if (node.hasAttribute('data-global-panel') || (node.closest && node.closest('.aeth-root'))) {
+			// 排除主面板（含设置页/图片预览/插件列表）、dialog、插件自己的面板
+			if (node.hasAttribute('data-global-panel') || (node.matches && node.matches('[role="dialog"], [aria-modal="true"]'))
+				|| (node.closest && node.closest('.aeth-root, [role="dialog"], [aria-modal="true"]'))) {
 				node = node.parentElement;
 				depth += 1;
 				continue;
@@ -164,10 +158,6 @@ function pressApply() {
 	PRESS.raf = null;
 	var pane = PRESS.current;
 	if (!pane || !pressTiltable(pane)) return;
-	if (pressIsSidebar(pane)) {
-		pressSoftDown(pane, true);
-		return;
-	}
 	var rect = pane.getBoundingClientRect();
 	if (rect.width === 0 || rect.height === 0) return;
 	var rx = ((GLOW.x - rect.left) / rect.width) * 2 - 1;
