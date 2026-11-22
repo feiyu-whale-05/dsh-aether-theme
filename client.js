@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.39';
+		var VERSION = '1.0.40';
 
 		var A = {
 			ctx: null,
@@ -2891,7 +2891,7 @@ window.__ModuleLoader__.load({
 		var GLOW_COLOR = 'rgba(90, 215, 255, 0.17)';
 
 		var PRESS = { raf: null, current: null, running: false, timers: new WeakMap() };
-		var TILT_MAX = 0.031;
+		var TILT_MAX = 0.0175; // Aqua 原值：≈1°
 		var TILT_PERSPECTIVE = 800;
 		var SETTLE_MS = 240;
 
@@ -2973,6 +2973,7 @@ window.__ModuleLoader__.load({
 			'[class*="Sheet"]',
 			'[class*="sidebarCol"]',
 			'[class*="sidebar"]',
+			'[data-aether-input-host]',
 		].join(', ');
 
 		/** 侧栏：不做 3D transform（会给内部 fixed 元素建包含块），用内阴影做下压观感。 */
@@ -2996,7 +2997,7 @@ window.__ModuleLoader__.load({
 				while (node && node !== document.body && depth < 10) {
 					var style = window.getComputedStyle(node);
 					// 排除主面板（含设置页/图片预览/插件列表）与插件自己的面板
-					if (node.hasAttribute('data-global-panel') || node.hasAttribute('data-aether-input-host') || (node.closest && node.closest('.aeth-root'))) {
+					if (node.hasAttribute('data-global-panel') || (node.closest && node.closest('.aeth-root'))) {
 						node = node.parentElement;
 						depth += 1;
 						continue;
@@ -3062,10 +3063,10 @@ window.__ModuleLoader__.load({
 			var oyPct = Math.max(0, Math.min(100, ((GLOW.y - rect.top) / rect.height) * 100));
 			pane.style.transformOrigin = oxPct.toFixed(1) + '% ' + oyPct.toFixed(1) + '%';
 			// 倾斜 + 轻微缩小（scale）：即使容器几乎占满屏幕，缩小也能立刻看出"压下去了"
-			var css = 'perspective(' + TILT_PERSPECTIVE + 'px) rotateX(' + rotateX.toFixed(5) + 'rad) rotateY(' + rotateY.toFixed(5) + 'rad) scale(.994)';
+			var css = 'perspective(' + TILT_PERSPECTIVE + 'px) rotateX(' + rotateX.toFixed(5) + 'rad) rotateY(' + rotateY.toFixed(5) + 'rad)';
 			pane.style.transform = css;
-			// 内阴影兜底：3D 倾斜在 overflow:hidden 容器里可能看不出来，阴影一定可见
-			if (!pane.getAttribute('data-aether-press-shade')) {
+			// 输入框卡片按 Aqua 的纯倾斜处理（不加内阴影）；其余容器补一层阴影保证可见
+			if (!pane.hasAttribute('data-aether-input-host') && !pane.getAttribute('data-aether-press-shade')) {
 				pane.setAttribute('data-aether-press-shade', '1');
 			}
 			A.pressApplied = { cls: String(pane.className || '').slice(0, 80), transform: css, at: Date.now() };
