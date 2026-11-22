@@ -445,6 +445,7 @@ function applyAppearance(reason) {
 	}
 
 	try { syncFx(); } catch (error) { /* ignore */ }
+	try { syncWhale(); } catch (error) { /* ignore */ }
 
 	pushLog('info', '外观已应用', {
 		reason: reason,
