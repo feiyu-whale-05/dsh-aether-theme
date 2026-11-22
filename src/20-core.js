@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.34';
+var VERSION = '1.0.35';
 
 var A = {
 	ctx: null,
@@ -1085,10 +1085,11 @@ function collectDiag() {
 			critters: typeof CRITTERS !== 'undefined' ? CRITTERS.built : null,
 			whaleParticles: typeof WHALE !== 'undefined' ? WHALE.particles.length : null,
 			whaleRunning: typeof WHALE !== 'undefined' ? WHALE.running : null,
-			meteorMounted: Boolean(A.meteorMounted),
-			meteorCanvas: Boolean(A.meteorDebug),
-			meteorEnabled: Boolean(A.meteorEnabled),
-			meteorState: A.meteorState || null,
+			meteorMounted: typeof METEOR !== 'undefined' ? METEOR.running : null,
+			meteorCanvas: typeof METEOR !== 'undefined' ? Boolean(METEOR.canvas) : null,
+			meteorEnabled: typeof meteorEnabled === 'function' ? meteorEnabled() : null,
+			meteorParticles: typeof METEOR !== 'undefined' ? METEOR.particles.length : null,
+			meteorSize: typeof METEOR !== 'undefined' && METEOR.canvas ? (METEOR.canvas.width + 'x' + METEOR.canvas.height) : null,
 			pressRunning: Boolean(A.pressRunning),
 			pressTarget: A.pressDebug || null,
 			glow: Boolean(A.cfg && A.cfg.fx && A.cfg.fx.glow !== false),
