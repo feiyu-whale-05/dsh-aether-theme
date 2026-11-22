@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.13';
+		var VERSION = '1.0.15';
 
 		var A = {
 			ctx: null,
@@ -785,8 +785,9 @@ window.__ModuleLoader__.load({
 				enabled: true,
 				modules: {
 					theme: { enabled: true }, wallpaper: { enabled: true }, glass: { enabled: true },
-					pixel: { enabled: false }, widget: { enabled: true }, pet: { enabled: false },
+					pixel: { enabled: false }, widget: { enabled: true },
 					boot: { enabled: true }, diag: { enabled: true },
+					inputGlow: { enabled: true }, fx: { enabled: true },
 				},
 				theme: {
 					palette: 'auto', accent: '#7aa2ff', secondary: '#9d7cff', deriveFromWallpaper: true,
@@ -809,7 +810,7 @@ window.__ModuleLoader__.load({
 				},
 				pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
 				widget: { position: 'bottom-right', showBalance: true, showToday: true, showTurn: true, warnBelow: 5 },
-				pet: { species: 'whale', size: 96, follow: true, idle: 'float' },
+				fx: { density: 60, fishCount: 4 },
 				boot: { durationMs: 2200, style: 'ripple', skipOnReducedMotion: true },
 				diag: { showOverlay: false, canaryStrikes: 40 },
 			};
@@ -1068,6 +1069,34 @@ window.__ModuleLoader__.load({
 				'.aeth-md del { opacity: .7; }',
 				// 流星尾缀画布
 				'#dsh-aether-meteor { position: fixed; inset: 0; z-index: 2147482999; pointer-events: none; }',
+				// 海洋小生物（参考 dsh-client-ui-aqua 的 SVG + CSS 动画方案）
+				'#dsh-aether-critters { position:absolute; inset:0; overflow:hidden; pointer-events:none; }',
+				'#dsh-aether-critters svg { position:absolute; display:block; }',
+				'.aether-critter.fish { color:#7ea4df; opacity:.22; animation: aether-fish-swim 12s ease-in-out infinite; will-change:transform; }',
+				'.aether-critter.fish.fish-left { animation-name: aether-fish-swim-left; animation-duration:16s; }',
+				'.aether-critter.bubble { color:#a9c6ef; opacity:0; animation: aether-bubble-rise 9s ease-in infinite; }',
+				'.aether-critter.plankton { color:#7ea4df; animation: aether-plankton 5s ease-in-out infinite; }',
+				'@keyframes aether-fish-swim {',
+				'  0% { transform: translate(0,0) rotate(-5deg); }',
+				'  30% { transform: translate(40px,-15px) rotate(4deg); }',
+				'  70% { transform: translate(52px,-18px) rotate(3deg); }',
+				'  100% { transform: translate(0,0) rotate(-5deg); }',
+				'}',
+				'@keyframes aether-fish-swim-left {',
+				'  0% { transform: translate(0,0) scaleX(-1) rotate(-5deg); }',
+				'  30% { transform: translate(-34px,-12px) scaleX(-1) rotate(4deg); }',
+				'  70% { transform: translate(-44px,-15px) scaleX(-1) rotate(3deg); }',
+				'  100% { transform: translate(0,0) scaleX(-1) rotate(-5deg); }',
+				'}',
+				'@keyframes aether-bubble-rise {',
+				'  0% { opacity:0; transform: translate(0,0); }',
+				'  10% { opacity:.5; }',
+				'  100% { opacity:0; transform: translate(8px,-150px); }',
+				'}',
+				'@keyframes aether-plankton {',
+				'  0%, 100% { opacity:.1; }',
+				'  50% { opacity:.38; }',
+				'}',
 				'.aeth-head { display:flex; gap:10px; align-items:baseline; margin-bottom: 12px; flex-wrap: wrap; }',
 				'.aeth-title { font-size: 16px; font-weight: 600; }',
 				'.aeth-sub { color: var(--dsw-alias-label-caption, #8b95a3); font-size: 12px; }',
@@ -1123,6 +1152,8 @@ window.__ModuleLoader__.load({
 				'  html[data-dsh-aether][data-aether-input="wenxin"] [data-aether-input-host]::after { transition-duration: 0ms !important; animation: none !important; }',
 				'  #dsh-aether-stage > .aether-wall { transition-duration: 0ms; }',
 				'  #dsh-aether-stage .aether-css { animation: none !important; }',
+				'  .aether-critter { animation: none !important; }',
+				'  .aether-critter.bubble { opacity: 0 !important; }',
 				'  .aeth-boot .aeth-boot-mark { animation: none; border-color:#7aa2ff; }',
 				'  .aeth-boot { animation-duration: 260ms; }',
 				'}',
@@ -1654,7 +1685,7 @@ window.__ModuleLoader__.load({
 				setVar('--aether-wenxin-a', dark ? '#3d7dfe' : '#2f6bff');
 				setVar('--aether-wenxin-b', dark ? '#6a59fe' : '#5b48f0');
 				setVar('--aether-wenxin-c', dark ? '#9142ff' : '#7b2ee0');
-				if (Array.isArray(glass.inputFills) && glass.inputFills.indexOf('wenxin') !== -1) {
+				if (moduleOn('inputGlow')) {
 					document.documentElement.setAttribute('data-aether-input', 'wenxin');
 				} else {
 					document.documentElement.removeAttribute('data-aether-input');
@@ -1757,6 +1788,8 @@ window.__ModuleLoader__.load({
 				setVar('--aether-glass-blur', '0px');
 				setVar('--aether-bg-blur', '0px');
 			}
+
+			try { syncFx(); } catch (error) { /* ignore */ }
 
 			pushLog('info', '外观已应用', {
 				reason: reason,
@@ -2103,85 +2136,6 @@ window.__ModuleLoader__.load({
 			return String(n);
 		}
 
-		// ── 桌宠：纯 SVG 绘制（零图片），眼睛跟随鼠标 ───────────────────────────
-		function AetherPet() {
-			useAetherTick();
-			var config = A.cfg && A.cfg.pet ? A.cfg.pet : { size: 96, follow: true };
-			var size = clamp(config.size || 96, 48, 220);
-			var eyeState = react.useState({ x: 0, y: 0 });
-			var eye = eyeState[0];
-			var setEye = eyeState[1];
-			var moodState = react.useState('idle');
-			var mood = moodState[0];
-			var setMood = moodState[1];
-
-			react.useEffect(function () {
-				if (!config.follow) return undefined;
-				var frame = null;
-				var latest = { x: 0, y: 0 };
-				function onMove(event) {
-					latest = { x: event.clientX, y: event.clientY };
-					if (frame !== null) return;
-					frame = requestAnimationFrame(function () {
-						frame = null;
-						try {
-							var rect = document.querySelector('.aeth-pet');
-							if (!rect) return;
-							var box = rect.getBoundingClientRect();
-							var cx = box.left + box.width / 2;
-							var cy = box.top + box.height * 0.42;
-							var dx = clamp((latest.x - cx) / 120, -1, 1);
-							var dy = clamp((latest.y - cy) / 120, -1, 1);
-							setEye({ x: dx * 2.6, y: dy * 2.2 });
-						} catch (error) { /* ignore */ }
-					});
-				}
-				window.addEventListener('mousemove', onMove, { passive: true });
-				return function () {
-					window.removeEventListener('mousemove', onMove);
-					if (frame !== null) cancelAnimationFrame(frame);
-				};
-			}, [config.follow]);
-
-			if (!moduleOn('pet') || A.canary.disabled) return null;
-
-			return h('div', {
-				className: 'aeth-pet',
-				style: { right: '26px', bottom: '132px', width: size + 'px', height: (size * 0.78) + 'px' },
-				role: 'img',
-				'aria-label': t('pet.title'),
-				title: t('pet.title'),
-				onClick: function () { setMood(mood === 'idle' ? 'happy' : mood === 'happy' ? 'sleepy' : 'idle'); },
-			},
-				h('svg', { viewBox: '0 0 120 94', width: '100%', height: '100%', 'aria-hidden': 'true' },
-					h('defs', null,
-						h('linearGradient', { id: 'aeth-whale-body', x1: '0', y1: '0', x2: '1', y2: '1' },
-							h('stop', { offset: '0', stopColor: '#7aa2ff' }),
-							h('stop', { offset: '1', stopColor: '#9d7cff' }),
-						),
-						h('linearGradient', { id: 'aeth-whale-belly', x1: '0', y1: '0', x2: '0', y2: '1' },
-							h('stop', { offset: '0', stopColor: '#eaf1ff' }),
-							h('stop', { offset: '1', stopColor: '#c9d9ff' }),
-						),
-					),
-					h('path', {
-						d: 'M14 58 C14 40 34 26 58 26 C84 26 104 40 108 56 C110 64 104 70 96 70 L22 70 C16 70 14 66 14 58 Z',
-						fill: 'url(#aeth-whale-body)',
-					}),
-					h('path', { d: 'M22 62 C34 74 78 74 96 64 L96 70 L22 70 Z', fill: 'url(#aeth-whale-belly)', opacity: '.9' }),
-					h('path', { d: 'M58 62 C60 68 64 70 68 68 C64 66 62 64 61 60 Z', fill: '#5b7cfa', opacity: '.7' }),
-					h('path', { d: 'M108 56 C114 48 118 46 120 44 C116 50 114 54 112 60 Z', fill: '#9d7cff' }),
-					h('path', { d: 'M14 56 C10 48 8 44 4 42 C8 50 8 54 10 60 Z', fill: '#9d7cff' }),
-					h('ellipse', { className: 'eye', cx: 84 + eye.x, cy: mood === 'sleepy' ? 44 : 44 + eye.y, rx: 4.2, ry: mood === 'sleepy' ? 1.2 : 4.6, fill: '#0d1220' }),
-					h('ellipse', { className: 'eye', cx: 95 + eye.x * 0.8, cy: mood === 'sleepy' ? 43 : 43 + eye.y * 0.8, rx: 3.4, ry: mood === 'sleepy' ? 1 : 3.8, fill: '#0d1220' }),
-					h('circle', { cx: 85.4, cy: 42.4, r: 1.2, fill: '#ffffff', opacity: '.9' }),
-					mood === 'happy'
-						? h('path', { d: 'M86 52 q4 4 8 0', stroke: '#0d1220', strokeWidth: 1.4, fill: 'none', strokeLinecap: 'round' })
-						: h('path', { d: 'M86 53 q4 -3 8 1', stroke: '#0d1220', strokeWidth: 1.2, fill: 'none', strokeLinecap: 'round', opacity: '.55' }),
-				),
-			);
-		}
-
 		// ── 余额挂件：数据来自 Host 读取的本机用量文件 ──────────────────────────
 		function BalanceWidget() {
 			useAetherTick();
@@ -2386,6 +2340,127 @@ window.__ModuleLoader__.load({
 			}, [canvas, enabled]);
 
 			return null;
+		}
+
+		// ── 56-particles.js ─────────────────────────────────────────────────
+		// ── critters：背景小鱼 / 气泡 / 浮游点（参考 dsh-client-ui-aqua 的方案） ──
+		// Aqua 的做法不是 canvas，而是「一个固定的、点击透明的容器 + 若干内联 SVG +
+		// CSS keyframes 动画」。这里沿用同一套结构（容器 + SVG + CSS 动画），
+		// 但图形与代码均为本插件自行绘制/编写，不复制上游 AGPL 源码：
+		//   · 鱼：简笔鱼剪影（身体 + 三角尾），currentColor 着色
+		//   · 气泡：描边圆环，上升时淡入淡出
+		//   · 浮游点：小实心圆，透明度呼吸
+		// 参数风格对齐 Aqua：低透明度（0.22 / 0.55）、蓝灰色（#7ea4df / #a9c6ef）、
+		// 长时间周期（9~19s）+ 负延迟让画面一开始就是"已经在动"的状态。
+
+		var CRITTERS = { host: null, built: 0 };
+
+		/** 简笔鱼剪影（自己画的路径，viewBox 0 0 24 16，尾巴朝右）。 */
+		var CRITTER_FISH_PATH = 'M1.6 8 C1.6 4.2 6 1.6 10.8 1.6 C15.4 1.6 19 4.6 20.2 8 C19 11.4 15.4 14.4 10.8 14.4 C6 14.4 1.6 11.8 1.6 8 Z M20.2 8 L23.4 3.6 L22.2 8 L23.4 12.4 Z';
+
+		function critterSvg(kind, viewBox, width, style, body) {
+			return '<svg class="aether-critter ' + kind + '" viewBox="' + viewBox + '" width="' + width + '" style="' + style + '" aria-hidden="true">' + body + '</svg>';
+		}
+
+		function critterFish(style, width, leftward) {
+			var cls = leftward ? 'fish fish-left' : 'fish';
+			return '<svg class="aether-critter ' + cls + '" viewBox="0 0 24 16" width="' + width + '" style="' + style + '" aria-hidden="true"><path d="' + CRITTER_FISH_PATH + '" fill="currentColor"/></svg>';
+		}
+
+		function critterBubble(style, size) {
+			return critterSvg('bubble', '0 0 8 8', size, style, '<circle cx="4" cy="4" r="3.1" fill="none" stroke="currentColor" stroke-width="1"/>');
+		}
+
+		function critterPlankton(style, size) {
+			return critterSvg('plankton', '0 0 4 4', size || 3, style, '<circle cx="2" cy="2" r="2" fill="currentColor"/>');
+		}
+
+		/** 生成场景标记；密度/鱼数量来自配置。 */
+		function crittersMarkup() {
+			var config = (A.cfg && A.cfg.fx) || {};
+			var fishCount = Math.round(clamp(config.fishCount === undefined ? 3 : config.fishCount, 0, 10));
+			var planktonCount = Math.round(clamp(config.density === undefined ? 4 : Math.round(config.density / 15), 0, 16));
+			var parts = [];
+			// 鱼：位置分散在画面中部，时长 9~19s，负延迟错开
+			var fishSpots = [
+				['top:20%;left:56%;animation-duration:9s', 30, false],
+				['top:34%;left:8%;animation-duration:14s;animation-delay:-4s', 20, true],
+				['top:62%;left:74%;animation-duration:19s;animation-delay:-9s;opacity:.55', 14, false],
+			];
+			for (var i = 0; i < fishCount; i += 1) {
+				var spot = fishSpots[i % fishSpots.length];
+				var extra = i >= fishSpots.length
+					? ' animation-duration:' + (11 + i * 3) + 's;animation-delay:-' + (i * 2.5) + 's;top:' + (18 + (i * 17) % 60) + '%;left:' + (12 + (i * 29) % 76) + '%'
+					: '';
+				parts.push(critterFish(spot[0] + extra, spot[1], spot[2]));
+			}
+			// 气泡：从底部缓慢升起
+			var bubbleSpots = [
+				['bottom:8%;left:9%;animation-duration:8s', 7],
+				['bottom:5%;left:13%;animation-duration:10s;animation-delay:2.5s', 5],
+				['bottom:10%;left:17%;animation-duration:9s;animation-delay:5s', 6],
+				['bottom:9%;left:82%;animation-duration:11s;animation-delay:1.5s', 8],
+				['bottom:6%;left:87%;animation-duration:8s;animation-delay:4s', 5],
+			];
+			for (var b = 0; b < bubbleSpots.length; b += 1) {
+				parts.push(critterBubble(bubbleSpots[b][0], bubbleSpots[b][1]));
+			}
+			// 浮游点：缓慢呼吸闪烁
+			for (var p = 0; p < planktonCount; p += 1) {
+				var top = 10 + (p * 23) % 78;
+				var left = 6 + (p * 37) % 88;
+				parts.push(critterPlankton('top:' + top + '%;left:' + left + '%;animation-delay:-' + (p * 0.9).toFixed(1) + 's', 3));
+			}
+			return parts.join('');
+		}
+
+		function crittersHost() {
+			if (CRITTERS.host && document.body.contains(CRITTERS.host)) return CRITTERS.host;
+			var stage = ensureStage();
+			var host = document.createElement('div');
+			host.id = 'dsh-aether-critters';
+			host.setAttribute('aria-hidden', 'true');
+			stage.appendChild(host);
+			CRITTERS.host = host;
+			return host;
+		}
+
+		function startFx() {
+			if (!A.cfg || A.canary.disabled) return;
+			if (!moduleOn('fx')) return;
+			if (shouldReduceMotion()) return;
+			var host = crittersHost();
+			host.innerHTML = crittersMarkup();
+			CRITTERS.built = host.childElementCount;
+			pushLog('info', '海洋小生物已注入', { count: CRITTERS.built });
+		}
+
+		function stopFx() {
+			if (CRITTERS.host) {
+				try { CRITTERS.host.remove(); } catch (error) { /* ignore */ }
+				CRITTERS.host = null;
+			}
+			CRITTERS.built = 0;
+		}
+
+		/** 配置变化时调用：开关 / 密度 / 鱼数量即时生效。 */
+		function syncFx() {
+			if (!A.cfg || A.canary.disabled || !moduleOn('fx') || shouldReduceMotion()) {
+				stopFx();
+				return;
+			}
+			if (!CRITTERS.host || !document.body.contains(CRITTERS.host)) {
+				startFx();
+				return;
+			}
+			var host = crittersHost();
+			host.innerHTML = crittersMarkup();
+			CRITTERS.built = host.childElementCount;
+		}
+
+		function restartFx() {
+			stopFx();
+			startFx();
 		}
 
 		// ── 60-panel.js ─────────────────────────────────────────────────────
@@ -2758,6 +2833,22 @@ window.__ModuleLoader__.load({
 					toggleRow('鼠标流星尾缀', Boolean(meteor.enabled), function (value) {
 						mutate(function (draft) { draft.meteor = Object.assign({}, draft.meteor || {}, { enabled: value }); }, { wallpaper: false });
 					}),
+					toggleRow('粒子与小鱼（背景特效）', moduleOn('fx'), function (value) {
+						mutate(function (draft) {
+							draft.modules = draft.modules || {};
+							draft.modules.fx = Object.assign({}, draft.modules.fx || {}, { enabled: value });
+						}, { wallpaper: false });
+						setTimeout(function () { try { syncFx(); } catch (error) { /* ignore */ } }, 60);
+					}),
+					h('div', { className: 'aeth-note', style: { marginBottom: '6px' } }, '粒子密度 / 小鱼数量'),
+					sliderRow('粒子密度', (cfg.fx || {}).density === undefined ? 60 : cfg.fx.density, 0, 200, 5, function (value) {
+						mutate(function (draft) { draft.fx = Object.assign({}, draft.fx || {}, { density: value }); }, { wallpaper: false });
+						setTimeout(function () { try { syncFx(); } catch (error) { /* ignore */ } }, 60);
+					}),
+					sliderRow('小鱼数量', (cfg.fx || {}).fishCount === undefined ? 4 : cfg.fx.fishCount, 0, 10, 1, function (value) {
+						mutate(function (draft) { draft.fx = Object.assign({}, draft.fx || {}, { fishCount: value }); }, { wallpaper: false });
+						setTimeout(function () { try { syncFx(); } catch (error) { /* ignore */ } }, 60);
+					}),
 					meteor.enabled
 						? sliderRow('流星密度', meteor.density || 1, 0.2, 3, 0.1, function (value) {
 							mutate(function (draft) { draft.meteor = Object.assign({}, draft.meteor || {}, { density: value }); }, { wallpaper: false });
@@ -2952,7 +3043,6 @@ window.__ModuleLoader__.load({
 								['tinted', t('input.tinted') + ' · 底色'],
 								['accent', t('input.accent') + ' · 底色'],
 								['bordered', t('input.bordered') + ' · 边框'],
-								['wenxin', '文心渐变 · 边框'],
 							].map(function (pair) {
 								var list = Array.isArray(glass.inputFills) ? glass.inputFills : ['frosted'];
 								var on = list.indexOf(pair[0]) !== -1;
@@ -3028,9 +3118,10 @@ window.__ModuleLoader__.load({
 				['glass', t('title.glass')],
 				['pixel', t('title.pixel')],
 				['widget', t('label.widget')],
-				['pet', t('label.pet')],
 				['boot', t('label.boot')],
 				['diag', t('section.diag')],
+				['inputGlow', '渐变边框（输入态）'],
+				['fx', '粒子与小鱼'],
 			];
 			return h('div', { className: 'aeth-card' },
 				h('h3', null, t('title.modules')),
@@ -3191,7 +3282,7 @@ window.__ModuleLoader__.load({
 				),
 				h('div', { className: 'aeth-card' },
 					h('h3', null, '模块'),
-						[['theme', '主题引擎'], ['wallpaper', '壁纸'], ['glass', '玻璃'], ['widget', t('label.widget')], ['pet', t('label.pet')], ['boot', t('label.boot')]].map(function (pair) {
+						[['theme', '主题引擎'], ['wallpaper', '壁纸'], ['glass', '玻璃'], ['widget', t('label.widget')], ['boot', t('label.boot')], ['fx', '粒子与小鱼'], ['inputGlow', '渐变边框']].map(function (pair) {
 							return toggleRow(pair[1], moduleOn(pair[0]), function (value) {
 								mutate(function (draft) { draft.modules[pair[0]].enabled = value; });
 							});
@@ -3473,7 +3564,6 @@ window.__ModuleLoader__.load({
 			useAetherTick();
 			return h(react.Fragment, null,
 				h(BootSplash, { key: 'boot' }),
-				h(AetherPet, { key: 'pet' }),
 				h(BalanceWidget, { key: 'widget' }),
 				h(DiagOverlay, { key: 'diag' }),
 			);
@@ -3663,6 +3753,7 @@ window.__ModuleLoader__.load({
 							try { if (A.diagTimer) clearInterval(A.diagTimer); } catch (error) { /* ignore */ }
 							try { if (A.observer) A.observer.disconnect(); } catch (error) { /* ignore */ }
 							try { stopUserMarkdown(); } catch (error) { /* ignore */ }
+							try { stopFx(); } catch (error) { /* ignore */ }
 							try { if (A.themeOff) A.themeOff(); } catch (error) { /* ignore */ }
 							try { if (A.mediaOff) A.mediaOff(); } catch (error) { /* ignore */ }
 							try { if (A.motionOff) A.motionOff(); } catch (error) { /* ignore */ }
