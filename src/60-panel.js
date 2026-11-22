@@ -367,6 +367,22 @@ function AdvancedCards(cfg, mutate) {
 			toggleRow('鼠标流星尾缀', Boolean(meteor.enabled), function (value) {
 				mutate(function (draft) { draft.meteor = Object.assign({}, draft.meteor || {}, { enabled: value }); }, { wallpaper: false });
 			}),
+			toggleRow('粒子与小鱼（背景特效）', moduleOn('fx'), function (value) {
+				mutate(function (draft) {
+					draft.modules = draft.modules || {};
+					draft.modules.fx = Object.assign({}, draft.modules.fx || {}, { enabled: value });
+				}, { wallpaper: false });
+				setTimeout(function () { try { syncFx(); } catch (error) { /* ignore */ } }, 60);
+			}),
+			h('div', { className: 'aeth-note', style: { marginBottom: '6px' } }, '粒子密度 / 小鱼数量'),
+			sliderRow('粒子密度', (cfg.fx || {}).density === undefined ? 60 : cfg.fx.density, 0, 200, 5, function (value) {
+				mutate(function (draft) { draft.fx = Object.assign({}, draft.fx || {}, { density: value }); }, { wallpaper: false });
+				setTimeout(function () { try { syncFx(); } catch (error) { /* ignore */ } }, 60);
+			}),
+			sliderRow('小鱼数量', (cfg.fx || {}).fishCount === undefined ? 4 : cfg.fx.fishCount, 0, 10, 1, function (value) {
+				mutate(function (draft) { draft.fx = Object.assign({}, draft.fx || {}, { fishCount: value }); }, { wallpaper: false });
+				setTimeout(function () { try { syncFx(); } catch (error) { /* ignore */ } }, 60);
+			}),
 			meteor.enabled
 				? sliderRow('流星密度', meteor.density || 1, 0.2, 3, 0.1, function (value) {
 					mutate(function (draft) { draft.meteor = Object.assign({}, draft.meteor || {}, { density: value }); }, { wallpaper: false });
@@ -561,7 +577,6 @@ function GlassTab(cfg, mutate) {
 						['tinted', t('input.tinted') + ' · 底色'],
 						['accent', t('input.accent') + ' · 底色'],
 						['bordered', t('input.bordered') + ' · 边框'],
-						['wenxin', '文心渐变 · 边框'],
 					].map(function (pair) {
 						var list = Array.isArray(glass.inputFills) ? glass.inputFills : ['frosted'];
 						var on = list.indexOf(pair[0]) !== -1;
@@ -637,9 +652,10 @@ function ModulesTab(cfg, mutate) {
 		['glass', t('title.glass')],
 		['pixel', t('title.pixel')],
 		['widget', t('label.widget')],
-		['pet', t('label.pet')],
 		['boot', t('label.boot')],
 		['diag', t('section.diag')],
+		['inputGlow', '渐变边框（输入态）'],
+		['fx', '粒子与小鱼'],
 	];
 	return h('div', { className: 'aeth-card' },
 		h('h3', null, t('title.modules')),
@@ -671,6 +687,10 @@ function DiagTab(exportDiag) {
 				h('b', null, '#root'), h('span', null, String(anchors.root)),
 				h('b', null, 'data-platform'), h('span', null, String(anchors.platform)),
 				h('b', null, '配置文件'), h('span', null, (A.host.diag && A.host.diag.configFile) || '~/.dsh/aether-theme/config.json'),
+				h('b', null, '粒子/小鱼'), h('span', { className: (typeof CRITTERS !== 'undefined' && CRITTERS.built > 0) ? 'aeth-ok' : 'aeth-bad' },
+					(typeof CRITTERS !== 'undefined' && CRITTERS.built > 0)
+						? CRITTERS.built + ' 个节点已注入'
+						: (shouldReduceMotion() ? '已被 reduced-motion 静默' : '未注入')),
 			),
 			h('div', { className: 'aeth-row', style: { marginTop: '10px' } },
 				h('button', { className: 'aeth-btn primary', onClick: exportDiag }, '导出 diag.json'),
