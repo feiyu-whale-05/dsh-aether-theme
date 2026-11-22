@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.47';
+var VERSION = '1.0.48';
 
 var A = {
 	ctx: null,
@@ -538,6 +538,15 @@ function defaultConfigFallback() {
 			regions: { base: 0, sidebar: 0.55, layers: 0.55, menu: 0.74, input: 0.55, bubble: 0.5 },
 			inputFills: ['frosted'], inputFillOpacity: 0.55,
 			chromeOpacity: 0, chromeBlur: 14,
+		// 分区背景：每个区域可单独设颜色与不透明度；enabled=false 时跟随外壳统一色
+		backgrounds: {
+			sidebar: { enabled: false, color: '#22262f', opacity: 0.5 },
+			input: { enabled: false, color: '#22262f', opacity: 0.5 },
+			bubble: { enabled: false, color: '#dbe7ff', opacity: 0.55 },
+			topbar: { enabled: false, color: '#22262f', opacity: 0.5 },
+			titlebar: { enabled: false, color: '#1b1f27', opacity: 0.6 },
+			settings: { enabled: false, color: '#22262f', opacity: 0.6 },
+		},
 		},
 		pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
 		widget: { position: 'bottom-right', showBalance: true, showToday: true, showTurn: true, warnBelow: 5 },
@@ -748,6 +757,18 @@ function buildStyleText() {
 		'}',
 		// 侧栏里出现 dialog 时撤掉磨砂（避免给 fixed 元素建包含块，Aqua 同款处理）
 		'html[data-dsh-aether] [class*="sidebarCol"]:has([role="dialog"]) { backdrop-filter: none !important; }',
+		// ── 分区背景（每块可单独覆盖；未启用时回落到外壳统一色/透明） ──
+		'html[data-dsh-aether] body {',
+		'  --dsw-specific-sidebar-fill: var(--aether-sidebar-bg, var(--aether-chrome-fill)) !important;',
+		'  --dsw-specific-sidebar-glass-fill: var(--aether-sidebar-bg, var(--aether-chrome-fill)) !important;',
+		'}',
+		'html[data-windows-titlebar][data-dsh-aether] [data-aether-frame]::before {',
+		'  background: linear-gradient(rgba(0, 0, 0, var(--aether-titlebar-extra, .08)), rgba(0, 0, 0, var(--aether-titlebar-extra, .08))), var(--aether-titlebar-bg, var(--aether-chrome-fill)) !important;',
+		'}',
+		'html[data-dsh-aether] header { background-color: var(--aether-topbar-bg, transparent) !important; }',
+		'html[data-dsh-aether] [data-aether-input-host] { background-color: var(--aether-input-bg, var(--aether-chrome-fill)) !important; }',
+		'html[data-dsh-aether] [data-global-panel] { background-color: var(--aether-settings-bg, transparent) !important; }',
+		'html[data-dsh-aether] body { --dsw-specific-bubble: var(--aether-bubble-bg, var(--dsw-specific-bubble-default, #dbe7ff8a)) !important; }',
 		// 输入框卡片底色统一到外壳变量（侧栏与顶栏由宿主的 frame/sidebar-fill 变量控制，
 		// 不再强行覆盖它们自身的背景，避免盖住侧栏里的折叠按钮等控件）
 		// 设置/图片查看的遮罩层用的是硬编码 #00000080（不是 CSS 变量），
