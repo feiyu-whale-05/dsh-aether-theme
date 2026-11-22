@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.68';
+		var VERSION = '1.0.69';
 
 		var A = {
 			ctx: null,
@@ -5027,7 +5027,6 @@ window.__ModuleLoader__.load({
 		function AetherOverlayHost() {
 			useAetherTick();
 			return h(react.Fragment, null,
-				h(BootSplash, { key: 'boot' }),
 				h(DiagOverlay, { key: 'diag' }),
 			);
 		}
