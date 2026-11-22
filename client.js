@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.70';
+		var VERSION = '1.0.71';
 
 		var A = {
 			ctx: null,
@@ -4896,9 +4896,9 @@ window.__ModuleLoader__.load({
 		var AVATAR_AGENT_SELECTOR = [
 			'[class*="assistantRow"]',
 			'[class*="assistant"]',
-			'[class*="markdownBody"]',
-			'[class*="markdown"]',
 		].join(', ');
+		/** 状态行标记：只有带这个属性的元素才允许承载 agent 头像。 */
+		var STATUS_MARK = 'data-aether-status';
 
 		var avatarObserver = null;
 		var avatarTimer = null;
@@ -5000,16 +5000,21 @@ window.__ModuleLoader__.load({
 				if (!A.cfg || A.canary.disabled) return;
 				var cfg = avatarConfig();
 				document.querySelectorAll(AVATAR_USER_SELECTOR).forEach(function (row) { syncAvatar(row, 'user', cfg); });
+				var seenStatus = [];
 				document.querySelectorAll(AVATAR_AGENT_SELECTOR).forEach(function (row) {
-					// agent 头像只挂到「最外层」的内容容器，避免每个 markdown 块都来一个
 					if (row.parentElement && row.parentElement.closest(AVATAR_AGENT_SELECTOR)) return;
-					// 优先对齐「已完成，用时…」那一行；找不到再退回内容容器
 					var status = findStatusLine(row);
-					syncAvatar(status || row, 'agent', cfg);
-					// 状态行命中后，把内容容器上的旧头像清掉，避免两个
-					if (status && status !== row) {
-						var stale = row.querySelector(':scope > .aeth-avatar');
-						if (stale) stale.remove();
+					if (!status) return;                       // 没有状态行就不挂，绝不在正文左侧出现
+					if (seenStatus.indexOf(status) !== -1) return;
+					seenStatus.push(status);
+					try { status.setAttribute(STATUS_MARK, '1'); } catch (error) { /* ignore */ }
+					syncAvatar(status, 'agent', cfg);
+				});
+				// 清理：任何不在状态行里的 agent 头像（包括历史残留 / 正文块上的）
+				document.querySelectorAll('.aeth-avatar-agent').forEach(function (node) {
+					var host = node.parentElement;
+					if (!host || !host.hasAttribute(STATUS_MARK)) {
+						try { node.remove(); } catch (error) { /* ignore */ }
 					}
 				});
 				if (!cfg) {
