@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.76';
+		var VERSION = '1.0.77';
 
 		var A = {
 			ctx: null,
@@ -5017,13 +5017,17 @@ window.__ModuleLoader__.load({
 				document.querySelectorAll(AVATAR_AGENT_SELECTOR).forEach(function (row) {
 					if (row.parentElement && row.parentElement.closest(AVATAR_AGENT_SELECTOR)) return;
 					var status = findStatusLine(row) || row;     // 状态行优先，找不到就退回内容容器
-					// 关键：不要把 closest(div) 当宿主 —— 那会一路找到整轮容器，
-					// 头像就挂到轮次左边缘（看起来像挂在正文标题旁）。
-					// 直接用状态行自身；inline 元素补 inline-block 以获得稳定定位框。
+					// 宿主选择：状态行的「行容器」（父级），而不是 span 本身 ——
+					// 状态行每秒更新计时文案，React 会重写 span 内容，挂在 span 里的头像会被一起删掉。
+					// 父级如果是正常大小的行容器就用它；过大（整轮容器）才退回 span。
 					var host = status;
 					try {
-						var cs = window.getComputedStyle(host);
-						if (cs.display === 'inline') host.style.display = 'inline-block';
+						var parent = status.parentElement;
+						if (parent && parent !== row
+							&& parent.offsetWidth > 0 && parent.offsetWidth < 700
+							&& parent.offsetHeight > 0 && parent.offsetHeight < 90) {
+							host = parent;
+						}
 					} catch (error) { /* ignore */ }
 					if (seenStatus.indexOf(host) !== -1) return;
 					seenStatus.push(host);
