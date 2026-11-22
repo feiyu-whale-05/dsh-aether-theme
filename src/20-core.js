@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.13';
+var VERSION = '1.0.15';
 
 var A = {
 	ctx: null,
@@ -495,8 +495,9 @@ function defaultConfigFallback() {
 		enabled: true,
 		modules: {
 			theme: { enabled: true }, wallpaper: { enabled: true }, glass: { enabled: true },
-			pixel: { enabled: false }, widget: { enabled: true }, pet: { enabled: false },
+			pixel: { enabled: false }, widget: { enabled: true },
 			boot: { enabled: true }, diag: { enabled: true },
+			inputGlow: { enabled: true }, fx: { enabled: true },
 		},
 		theme: {
 			palette: 'auto', accent: '#7aa2ff', secondary: '#9d7cff', deriveFromWallpaper: true,
@@ -519,7 +520,7 @@ function defaultConfigFallback() {
 		},
 		pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
 		widget: { position: 'bottom-right', showBalance: true, showToday: true, showTurn: true, warnBelow: 5 },
-		pet: { species: 'whale', size: 96, follow: true, idle: 'float' },
+		fx: { density: 60, fishCount: 4 },
 		boot: { durationMs: 2200, style: 'ripple', skipOnReducedMotion: true },
 		diag: { showOverlay: false, canaryStrikes: 40 },
 	};
@@ -778,6 +779,34 @@ function buildStyleText() {
 		'.aeth-md del { opacity: .7; }',
 		// 流星尾缀画布
 		'#dsh-aether-meteor { position: fixed; inset: 0; z-index: 2147482999; pointer-events: none; }',
+		// 海洋小生物（参考 dsh-client-ui-aqua 的 SVG + CSS 动画方案）
+		'#dsh-aether-critters { position:absolute; inset:0; overflow:hidden; pointer-events:none; }',
+		'#dsh-aether-critters svg { position:absolute; display:block; }',
+		'.aether-critter.fish { color:#7ea4df; opacity:.22; animation: aether-fish-swim 12s ease-in-out infinite; will-change:transform; }',
+		'.aether-critter.fish.fish-left { animation-name: aether-fish-swim-left; animation-duration:16s; }',
+		'.aether-critter.bubble { color:#a9c6ef; opacity:0; animation: aether-bubble-rise 9s ease-in infinite; }',
+		'.aether-critter.plankton { color:#7ea4df; animation: aether-plankton 5s ease-in-out infinite; }',
+		'@keyframes aether-fish-swim {',
+		'  0% { transform: translate(0,0) rotate(-5deg); }',
+		'  30% { transform: translate(40px,-15px) rotate(4deg); }',
+		'  70% { transform: translate(52px,-18px) rotate(3deg); }',
+		'  100% { transform: translate(0,0) rotate(-5deg); }',
+		'}',
+		'@keyframes aether-fish-swim-left {',
+		'  0% { transform: translate(0,0) scaleX(-1) rotate(-5deg); }',
+		'  30% { transform: translate(-34px,-12px) scaleX(-1) rotate(4deg); }',
+		'  70% { transform: translate(-44px,-15px) scaleX(-1) rotate(3deg); }',
+		'  100% { transform: translate(0,0) scaleX(-1) rotate(-5deg); }',
+		'}',
+		'@keyframes aether-bubble-rise {',
+		'  0% { opacity:0; transform: translate(0,0); }',
+		'  10% { opacity:.5; }',
+		'  100% { opacity:0; transform: translate(8px,-150px); }',
+		'}',
+		'@keyframes aether-plankton {',
+		'  0%, 100% { opacity:.1; }',
+		'  50% { opacity:.38; }',
+		'}',
 		'.aeth-head { display:flex; gap:10px; align-items:baseline; margin-bottom: 12px; flex-wrap: wrap; }',
 		'.aeth-title { font-size: 16px; font-weight: 600; }',
 		'.aeth-sub { color: var(--dsw-alias-label-caption, #8b95a3); font-size: 12px; }',
@@ -833,6 +862,8 @@ function buildStyleText() {
 		'  html[data-dsh-aether][data-aether-input="wenxin"] [data-aether-input-host]::after { transition-duration: 0ms !important; animation: none !important; }',
 		'  #dsh-aether-stage > .aether-wall { transition-duration: 0ms; }',
 		'  #dsh-aether-stage .aether-css { animation: none !important; }',
+		'  .aether-critter { animation: none !important; }',
+		'  .aether-critter.bubble { opacity: 0 !important; }',
 		'  .aeth-boot .aeth-boot-mark { animation: none; border-color:#7aa2ff; }',
 		'  .aeth-boot { animation-duration: 260ms; }',
 		'}',
