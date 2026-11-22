@@ -34,7 +34,12 @@ dsh plugin --profile desktop add D:/DSH-plugins/dsh-aether-theme
 
 ## 组合包
 
-这是一个**组合包**：安装本插件会同时启用费用统计伙伴 [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter)（MIT），由它提供会话成本/余额/峰谷价提醒，本插件不再自带简陋的余额挂件。
+这是一个**组合包**：
+
+| 伙伴 | 许可 | 职责 |
+|---|---|---|
+| [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter) | MIT | 会话成本 / 余额 / 峰谷价提醒（本插件不再自带简陋余额挂件） |
+| `dsh-boot-splash-pro` | BSD-3-Clause | 片头动画（首帧注入，官方加载卡片不再露脸；本插件不再自带开屏） |
 
 - 本插件 `dependencies` 声明了 `dsh-cost-meter`，`cordis.patch.yml` 额外 insert 一行加载它
 - 如果你的 profile 已经单独装过 dsh-cost-meter（`bundles` 里有它），**删掉**本插件 patch 里的「组合包」段，否则会注册两次
