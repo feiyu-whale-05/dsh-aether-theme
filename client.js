@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.47';
+		var VERSION = '1.0.48';
 
 		var A = {
 			ctx: null,
@@ -828,6 +828,15 @@ window.__ModuleLoader__.load({
 					regions: { base: 0, sidebar: 0.55, layers: 0.55, menu: 0.74, input: 0.55, bubble: 0.5 },
 					inputFills: ['frosted'], inputFillOpacity: 0.55,
 					chromeOpacity: 0, chromeBlur: 14,
+				// 分区背景：每个区域可单独设颜色与不透明度；enabled=false 时跟随外壳统一色
+				backgrounds: {
+					sidebar: { enabled: false, color: '#22262f', opacity: 0.5 },
+					input: { enabled: false, color: '#22262f', opacity: 0.5 },
+					bubble: { enabled: false, color: '#dbe7ff', opacity: 0.55 },
+					topbar: { enabled: false, color: '#22262f', opacity: 0.5 },
+					titlebar: { enabled: false, color: '#1b1f27', opacity: 0.6 },
+					settings: { enabled: false, color: '#22262f', opacity: 0.6 },
+				},
 				},
 				pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
 				widget: { position: 'bottom-right', showBalance: true, showToday: true, showTurn: true, warnBelow: 5 },
@@ -1038,6 +1047,18 @@ window.__ModuleLoader__.load({
 				'}',
 				// 侧栏里出现 dialog 时撤掉磨砂（避免给 fixed 元素建包含块，Aqua 同款处理）
 				'html[data-dsh-aether] [class*="sidebarCol"]:has([role="dialog"]) { backdrop-filter: none !important; }',
+				// ── 分区背景（每块可单独覆盖；未启用时回落到外壳统一色/透明） ──
+				'html[data-dsh-aether] body {',
+				'  --dsw-specific-sidebar-fill: var(--aether-sidebar-bg, var(--aether-chrome-fill)) !important;',
+				'  --dsw-specific-sidebar-glass-fill: var(--aether-sidebar-bg, var(--aether-chrome-fill)) !important;',
+				'}',
+				'html[data-windows-titlebar][data-dsh-aether] [data-aether-frame]::before {',
+				'  background: linear-gradient(rgba(0, 0, 0, var(--aether-titlebar-extra, .08)), rgba(0, 0, 0, var(--aether-titlebar-extra, .08))), var(--aether-titlebar-bg, var(--aether-chrome-fill)) !important;',
+				'}',
+				'html[data-dsh-aether] header { background-color: var(--aether-topbar-bg, transparent) !important; }',
+				'html[data-dsh-aether] [data-aether-input-host] { background-color: var(--aether-input-bg, var(--aether-chrome-fill)) !important; }',
+				'html[data-dsh-aether] [data-global-panel] { background-color: var(--aether-settings-bg, transparent) !important; }',
+				'html[data-dsh-aether] body { --dsw-specific-bubble: var(--aether-bubble-bg, var(--dsw-specific-bubble-default, #dbe7ff8a)) !important; }',
 				// 输入框卡片底色统一到外壳变量（侧栏与顶栏由宿主的 frame/sidebar-fill 变量控制，
 				// 不再强行覆盖它们自身的背景，避免盖住侧栏里的折叠按钮等控件）
 				// 设置/图片查看的遮罩层用的是硬编码 #00000080（不是 CSS 变量），
@@ -1791,6 +1812,24 @@ window.__ModuleLoader__.load({
 			var chromeOpacity = clamp(glass.chromeOpacity === undefined || glass.chromeOpacity === 0 ? chromeDefault : glass.chromeOpacity, 0, 1);
 			var chromeColor = dark ? { r: 34, g: 38, b: 47, a: 1 } : { r: 255, g: 255, b: 255, a: 1 };
 			var chromeBlur = clamp(glass.chromeBlur === undefined ? 14 : glass.chromeBlur, 0, 40);
+
+			// 分区背景：每个区域独立颜色/透明度，未启用则 clearVar 回落到外壳统一色
+			var regionBg = A.cfg.backgrounds || {};
+			(function applyRegionBackgrounds() {
+				var keys = ['sidebar', 'input', 'bubble', 'topbar', 'titlebar', 'settings'];
+				for (var i = 0; i < keys.length; i += 1) {
+					var key = keys[i];
+					var item = regionBg[key];
+					var varName = '--aether-' + key + '-bg';
+					if (item && item.enabled === true) {
+						var color = parseColor(item.color || '#22262f');
+						var alpha = clamp(item.opacity === undefined ? 0.5 : item.opacity, 0, 1);
+						setVar(varName, rgba(color, alpha));
+					} else {
+						clearVar(varName);
+					}
+				}
+			})();
 
 			var vars = {
 				'--aether-accent': palette.accent,
@@ -3535,6 +3574,60 @@ window.__ModuleLoader__.load({
 						}),
 					),
 					h('div', { className: 'aeth-note' }, '作用于模型输出的 **加粗重点**（host 的 strong/b）。'),
+				),
+				h('div', { className: 'aeth-card' },
+					h('h3', null, '分区背景（每块可单独配置）'),
+					h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
+						'开启后该区域使用自己的颜色与不透明度；关闭则跟随「外壳暗度」统一值。'),
+					[
+						['sidebar', '侧边栏'],
+						['input', '对话页输入框'],
+						['bubble', '用户气泡'],
+						['topbar', '顶栏（标签栏）'],
+						['titlebar', '标题栏（应用/编辑）'],
+						['settings', '设置页'],
+					].map(function (pair) {
+						var key = pair[0];
+						var item = (cfg.backgrounds && cfg.backgrounds[key]) || { enabled: false, color: '#22262f', opacity: 0.5 };
+						return h('div', { key: key, className: 'aeth-row', style: { alignItems: 'center' } },
+							h('label', { style: { minWidth: '150px' } }, pair[1]),
+							h('button', {
+								className: 'aeth-btn' + (item.enabled ? ' primary' : ''),
+								onClick: function () {
+									mutate(function (draft) {
+										draft.backgrounds = draft.backgrounds || {};
+										draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { enabled: !item.enabled });
+									}, { wallpaper: false });
+								},
+							}, item.enabled ? '独立' : '跟随'),
+							h('input', {
+								type: 'color',
+								value: item.color || '#22262f',
+								disabled: !item.enabled,
+								onChange: function (event) {
+									mutate(function (draft) {
+										draft.backgrounds = draft.backgrounds || {};
+										draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { color: event.target.value });
+									}, { wallpaper: false });
+								},
+								style: { width: '34px', height: '24px', border: 'none', background: 'transparent', opacity: item.enabled ? 1 : 0.4 },
+							}),
+							h('input', {
+								type: 'range', min: 0, max: 1, step: 0.01,
+								value: item.opacity === undefined ? 0.5 : item.opacity,
+								disabled: !item.enabled,
+								onChange: function (event) {
+									mutate(function (draft) {
+										draft.backgrounds = draft.backgrounds || {};
+										draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { opacity: Number(event.target.value) });
+									}, { wallpaper: false });
+								},
+								style: { flex: '1 1 80px', minWidth: '80px', opacity: item.enabled ? 1 : 0.4 },
+							}),
+							h('span', { className: 'aeth-note', style: { minWidth: '40px', textAlign: 'right' } },
+								String(Math.round((item.opacity === undefined ? 0.5 : item.opacity) * 100)) + '%'),
+						);
+					}),
 				),
 				h('div', { className: 'aeth-card' },
 					h('h3', null, '用户气泡'),
