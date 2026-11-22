@@ -171,8 +171,12 @@ function pressApply() {
 	// 鼠标在左上 → 面板左上翘起；保持 ~1°
 	var rotateY = rx * TILT_MAX;
 	var rotateX = -ry * TILT_MAX;
-	pane.style.transformOrigin = 'center center';
-	var css = 'perspective(' + TILT_PERSPECTIVE + 'px) rotateX(' + rotateX.toFixed(5) + 'rad) rotateY(' + rotateY.toFixed(5) + 'rad) scale(1)';
+	// 旋转原点跟随指针：指针附近不动、四周轻微翘起，像被按下去
+	var oxPct = Math.max(0, Math.min(100, ((GLOW.x - rect.left) / rect.width) * 100));
+	var oyPct = Math.max(0, Math.min(100, ((GLOW.y - rect.top) / rect.height) * 100));
+	pane.style.transformOrigin = oxPct.toFixed(1) + '% ' + oyPct.toFixed(1) + '%';
+	// 倾斜 + 轻微缩小（scale）：即使容器几乎占满屏幕，缩小也能立刻看出"压下去了"
+	var css = 'perspective(' + TILT_PERSPECTIVE + 'px) rotateX(' + rotateX.toFixed(5) + 'rad) rotateY(' + rotateY.toFixed(5) + 'rad) scale(.994)';
 	pane.style.transform = css;
 	// 内阴影兜底：3D 倾斜在 overflow:hidden 容器里可能看不出来，阴影一定可见
 	if (!pane.getAttribute('data-aether-press-shade')) {
