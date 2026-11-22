@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.58';
+		var VERSION = '1.0.59';
 
 		var A = {
 			ctx: null,
@@ -2041,6 +2041,7 @@ window.__ModuleLoader__.load({
 			try { syncWhale(); } catch (error) { /* ignore */ }
 			try { syncGlowPress(); } catch (error) { /* ignore */ }
 			try { syncMeteor(); } catch (error) { /* ignore */ }
+			try { scanBubbleDeco(); } catch (error) { /* ignore */ }
 
 			pushLog('info', '外观已应用', {
 				reason: reason,
@@ -4634,6 +4635,34 @@ window.__ModuleLoader__.load({
 
 		// 宿主把 data-message-bubble 作为 prop 传给了 UserMessageBubble 组件，并不会落到 DOM 上，
 		// 所以要用 CSS Modules 的类名特征来定位用户消息栈。
+		/** 独立的装饰观察器：聊天区渲染与 usermd 开关无关，装饰要自己盯 DOM。 */
+		var bubbleDecoObserver = null;
+		var bubbleDecoTimer = null;
+
+		function scheduleBubbleDecoScan() {
+			if (bubbleDecoTimer) return;
+			bubbleDecoTimer = setTimeout(function () {
+				bubbleDecoTimer = null;
+				try { scanBubbleDeco(); } catch (error) { /* ignore */ }
+			}, 120);
+		}
+
+		function startBubbleDeco() {
+			try {
+				if (bubbleDecoObserver || !document.body) return;
+				bubbleDecoObserver = new MutationObserver(scheduleBubbleDecoScan);
+				bubbleDecoObserver.observe(document.body, { childList: true, subtree: true });
+				scheduleBubbleDecoScan();
+			} catch (error) { /* ignore */ }
+		}
+
+		function stopBubbleDeco() {
+			try { if (bubbleDecoObserver) bubbleDecoObserver.disconnect(); } catch (error) { /* ignore */ }
+			bubbleDecoObserver = null;
+			if (bubbleDecoTimer) { clearTimeout(bubbleDecoTimer); bubbleDecoTimer = null; }
+			clearBubbleDeco();
+		}
+
 		var BUBBLE_DECO_SELECTOR = [
 			'[data-message-bubble]',
 			'[class*="_userStack"]',
@@ -4899,6 +4928,9 @@ window.__ModuleLoader__.load({
 				notify();
 			});
 
+			// 2.35) 气泡装饰观察器
+			try { startBubbleDeco(); } catch (error) { /* ignore */ }
+
 			// 2.4) 遮罩层清理（设置/图片查看的黑底直接删元素）
 			try { removeMaskLayers(); watchMaskLayers(); } catch (error) { /* ignore */ }
 
@@ -4932,6 +4964,7 @@ window.__ModuleLoader__.load({
 							try { whaleStop(); } catch (error) { /* ignore */ }
 							try { stopGlow(); stopPress(); } catch (error) { /* ignore */ }
 							try { stopMeteor(); } catch (error) { /* ignore */ }
+							try { stopBubbleDeco(); } catch (error) { /* ignore */ }
 							try { if (A.themeOff) A.themeOff(); } catch (error) { /* ignore */ }
 							try { if (A.mediaOff) A.mediaOff(); } catch (error) { /* ignore */ }
 							try { if (A.motionOff) A.motionOff(); } catch (error) { /* ignore */ }
