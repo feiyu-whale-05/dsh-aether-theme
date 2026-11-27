@@ -168,6 +168,17 @@ var apply = function apply(ctx) {
 		notify();
 	});
 
+	// 2.33) 会话页切换：首页没有消息时不画插件鲸鱼，发消息后自动补上
+	try {
+		var lastConversation = null;
+		A.conversationTimer = setInterval(function () {
+			var now = hasConversationView();
+			if (now === lastConversation) return;
+			lastConversation = now;
+			try { syncWhale(); } catch (error) { /* ignore */ }
+		}, 1500);
+	} catch (error) { /* ignore */ }
+
 	// 2.34) 视频壁纸续播（窗口恢复/可见性变化）
 	try {
 		A.videoResumeOff = function () {
