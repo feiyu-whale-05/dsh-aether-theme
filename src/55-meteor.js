@@ -45,13 +45,21 @@ function meteorSpawn(x, y, dx, dy) {
 			hue: hueBase + (Math.random() * 70 - 20),
 		});
 	}
-	if (METEOR.particles.length > 280) METEOR.particles.splice(0, METEOR.particles.length - 280);
+	if (METEOR.particles.length > 240) METEOR.particles.splice(0, METEOR.particles.length - 240);
+	// 粒子重新出现：如果循环已停，重新拉起
+	if (METEOR.running && METEOR.raf === null) METEOR.raf = requestAnimationFrame(meteorTick);
 }
 
 function meteorTick() {
-	if (!METEOR.running) return;
+	if (!METEOR.running) { METEOR.raf = null; return; }
 	var ctx = METEOR.ctx;
-	if (!ctx) { METEOR.raf = requestAnimationFrame(meteorTick); return; }
+	if (!ctx) { METEOR.raf = null; return; }
+	// 空闲停帧：没有粒子时不占 rAF（之前即使静止也每秒空转 60 次）
+	if (METEOR.particles.length === 0) {
+		ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+		METEOR.raf = null;
+		return;
+	}
 	var w = window.innerWidth;
 	var h = window.innerHeight;
 	ctx.clearRect(0, 0, w, h);
