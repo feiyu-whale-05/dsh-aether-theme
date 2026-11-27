@@ -171,12 +171,12 @@ var apply = function apply(ctx) {
 	// 2.33) 会话页切换：首页没有消息时不画插件鲸鱼，发消息后自动补上
 	try {
 		var lastConversation = null;
-		A.conversationTimer = setInterval(function () {
+		idleEvery(2, function () {
 			var now = hasConversationView();
 			if (now === lastConversation) return;
 			lastConversation = now;
 			try { syncWhale(); } catch (error) { /* ignore */ }
-		}, 1500);
+		});
 	} catch (error) { /* ignore */ }
 
 	// 2.34) 视频壁纸续播（窗口恢复/可见性变化）
@@ -184,11 +184,11 @@ var apply = function apply(ctx) {
 		A.videoResumeOff = function () {
 			document.removeEventListener('visibilitychange', ensureVideoPlaying);
 			window.removeEventListener('focus', ensureVideoPlaying);
-			A.videoTimer && clearInterval(A.videoTimer);
 		};
 		document.addEventListener('visibilitychange', ensureVideoPlaying);
 		window.addEventListener('focus', ensureVideoPlaying);
-		A.videoTimer = setInterval(ensureVideoPlaying, 4000);
+		// 兜底检查并入低频总线（6s 一次，比原来 4s 更省）
+		idleEvery(6, ensureVideoPlaying);
 	} catch (error) { /* ignore */ }
 
 	// 2.35) 气泡装饰观察器
@@ -218,12 +218,13 @@ var apply = function apply(ctx) {
 		if (typeof ctx.effect === 'function') {
 			ctx.effect(function () {
 				return function () {
-					try { if (A.canary.timer) clearInterval(A.canary.timer); } catch (error) { /* ignore */ }
+					try { idleStop(); } catch (error) { /* ignore */ }
+					try { if (A.applyRaf) cancelAnimationFrame(A.applyRaf); A.applyRaf = null; } catch (error) { /* ignore */ }
 					try { if (A.rotationTimer) clearInterval(A.rotationTimer); } catch (error) { /* ignore */ }
 					try { if (A.diagTimer) clearInterval(A.diagTimer); } catch (error) { /* ignore */ }
 					try { if (A.observer) A.observer.disconnect(); } catch (error) { /* ignore */ }
 					try { stopUserMarkdown(); } catch (error) { /* ignore */ }
-					try { if (A.maskObserver) A.maskObserver.disconnect(); } catch (error) { /* ignore */ }
+					try { unwatchDom(removeMaskLayers); } catch (error) { /* ignore */ }
 					try { stopFx(); } catch (error) { /* ignore */ }
 					try { whaleStop(); } catch (error) { /* ignore */ }
 					try { stopGlow(); stopPress(); } catch (error) { /* ignore */ }
@@ -233,6 +234,8 @@ var apply = function apply(ctx) {
 					try { if (A.themeOff) A.themeOff(); } catch (error) { /* ignore */ }
 					try { if (A.mediaOff) A.mediaOff(); } catch (error) { /* ignore */ }
 					try { if (A.motionOff) A.motionOff(); } catch (error) { /* ignore */ }
+					try { if (A.videoResumeOff) A.videoResumeOff(); } catch (error) { /* ignore */ }
+					try { clearTopbarMark(); } catch (error) { /* ignore */ }
 					try { removeStyle(); removeStage(); } catch (error) { /* ignore */ }
 					try {
 						document.documentElement.removeAttribute('data-dsh-aether');
