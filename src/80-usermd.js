@@ -140,24 +140,14 @@ function scanUserMarkdown() {
 function startUserMarkdown() {
 	if (userMdObserver) return;
 	try {
-		userMdObserver = new MutationObserver(function () {
-			if (userMdTimer) return;
-			userMdTimer = setTimeout(function () {
-				userMdTimer = null;
-				scanUserMarkdown();
-			}, 220);
-		});
-		userMdObserver.observe(document.body, { childList: true, subtree: true });
-	} catch (error) {
-		pushLog('warn', '用户 markdown observer 启动失败', { message: String(error && error.message) });
-	}
-	scanUserMarkdown();
+		userMdObserver = true;
+		watchDom(scanUserMarkdown);
+		scanUserMarkdown();
+	} catch (error) { /* ignore */ }
 }
 
 function stopUserMarkdown() {
-	if (userMdObserver) {
-		try { userMdObserver.disconnect(); } catch (error) { /* ignore */ }
-		userMdObserver = null;
-	}
+	try { unwatchDom(scanUserMarkdown); } catch (error) { /* ignore */ }
+	userMdObserver = null;
 	if (userMdTimer) { clearTimeout(userMdTimer); userMdTimer = null; }
 }
