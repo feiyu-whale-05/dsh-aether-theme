@@ -26,7 +26,7 @@ var WHALE_MOUSE_RADIUS = 4.9;
 var WHALE_MOUSE_STRENGTH = 0.8;
 var WHALE_MOUSE_DISTORT = 5;
 var WHALE_LOOSE = 1;
-var WHALE_FPS = 30;
+var WHALE_FPS = 26;   // 30 → 26：肉眼几乎无差，绘制开销降 13%
 
 function whaleSmoothstep(a, b, t) {
 	var x = Math.min(1, Math.max(0, (t - a) / (b - a)));
