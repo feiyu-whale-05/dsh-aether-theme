@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.79';
+var VERSION = '1.0.80';
 
 var A = {
 	ctx: null,
@@ -426,8 +426,22 @@ function loadState(retried) {
 		A.host.wallpapers = Array.isArray(payload.wallpapers) ? payload.wallpapers : [];
 		A.host.usage = payload.usage || null;
 		A.host.diag = payload.diag || null;
+		A.host.remoteWallpaperMode = payload.appearance && payload.appearance.wallpaper ? payload.appearance.wallpaper.mode : null;
 		A.defaults = payload.defaultAppearance || null;
+		var previousWall = A.cfg && A.cfg.wallpaper ? A.cfg.wallpaper : null;
 		A.cfg = mergeConfig(payload.appearance, payload.defaultAppearance);
+		// host 配置可能落后于本地刚改的壁纸选择：本地选的是 video/image 而 host 还是 none 时，
+		// 保留本地选择并把 host 覆盖回来（否则用户会看到「背景突然变成无」）
+		if (previousWall && previousWall.mode && previousWall.mode !== 'none'
+			&& (!A.cfg.wallpaper || A.cfg.wallpaper.mode === 'none')) {
+			A.cfg.wallpaper = Object.assign({}, A.cfg.wallpaper || {}, {
+				mode: previousWall.mode,
+				source: previousWall.source,
+				id: previousWall.id,
+				cssPreset: previousWall.cssPreset,
+			});
+			pushLog('warn', 'host 配置落后，已保留本地壁纸选择', { mode: previousWall.mode, id: previousWall.id });
+		}
 		migrateBlurOff(A.cfg);
 		return payload;
 	}).catch(function (error) {
@@ -1249,6 +1263,24 @@ function collectDiag() {
 			pressRunning: Boolean(A.pressRunning),
 			pressTarget: A.pressDebug || null,
 			pressApplied: A.pressApplied || null,
+			wallpaper: {
+				mode: A.cfg && A.cfg.wallpaper ? A.cfg.wallpaper.mode : null,
+				source: A.cfg && A.cfg.wallpaper ? A.cfg.wallpaper.source : null,
+				id: A.cfg && A.cfg.wallpaper ? A.cfg.wallpaper.id : null,
+				layers: A.layerEls ? A.layerEls.length : null,
+				videoConnected: A.videoEl ? Boolean(A.videoEl.isConnected) : null,
+				videoPaused: A.videoEl ? A.videoEl.paused : null,
+				videoTime: A.videoEl ? Math.round(A.videoEl.currentTime * 10) / 10 : null,
+				currentKey: A.currentWallKey || null,
+				cached: (function () {
+					try {
+						var raw = window.localStorage.getItem(STORAGE_KEY);
+						var parsed = raw ? JSON.parse(raw) : null;
+						return parsed && parsed.wallpaper ? parsed.wallpaper.mode : null;
+					} catch (error) { return null; }
+				})(),
+				host: A.host && A.host.remoteWallpaperMode ? A.host.remoteWallpaperMode : null,
+			},
 			topbar: {
 				tabs: document.querySelectorAll('[data-conversation-tabs]').length,
 				marked: document.querySelectorAll('[data-aether-topbar]').length,
