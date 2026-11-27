@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.80';
+		var VERSION = '1.0.81';
 
 		var A = {
 			ctx: null,
@@ -3124,9 +3124,24 @@ window.__ModuleLoader__.load({
 			WHALE.particles = [];
 		}
 
+		/** 当前是否在「已有对话」的对话页：首页（新对话）没有任何消息气泡。 */
+		function hasConversationView() {
+			try {
+				if (document.querySelectorAll('[data-message-bubble]').length > 0) return true;
+				if (document.querySelectorAll('[class*="userRow"]').length > 0) return true;
+				if (document.querySelectorAll('[class*="assistant"]').length > 0) return true;
+			} catch (error) { /* ignore */ }
+			return false;
+		}
+
 		function syncWhale() {
 			if (!A.cfg || A.canary.disabled || !moduleOn('fx') || (A.cfg.fx && A.cfg.fx.whale === false)) {
 				whaleStop();
+				return;
+			}
+			// 新对话（空白首页）交给官方 5.7s 鲸鱼跃出动画，插件鲸鱼只在已有对话的页面出现
+			if (!hasConversationView()) {
+				if (WHALE.running) whaleStop();
 				return;
 			}
 			if (!WHALE.running || !WHALE.holder || !document.body.contains(WHALE.holder)) {
@@ -5306,6 +5321,17 @@ window.__ModuleLoader__.load({
 				applyWallpaper('offline');
 				notify();
 			});
+
+			// 2.33) 会话页切换：首页没有消息时不画插件鲸鱼，发消息后自动补上
+			try {
+				var lastConversation = null;
+				A.conversationTimer = setInterval(function () {
+					var now = hasConversationView();
+					if (now === lastConversation) return;
+					lastConversation = now;
+					try { syncWhale(); } catch (error) { /* ignore */ }
+				}, 1500);
+			} catch (error) { /* ignore */ }
 
 			// 2.34) 视频壁纸续播（窗口恢复/可见性变化）
 			try {
