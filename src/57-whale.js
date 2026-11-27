@@ -278,9 +278,24 @@ function whaleStop() {
 	WHALE.particles = [];
 }
 
+/** 当前是否在「已有对话」的对话页：首页（新对话）没有任何消息气泡。 */
+function hasConversationView() {
+	try {
+		if (document.querySelectorAll('[data-message-bubble]').length > 0) return true;
+		if (document.querySelectorAll('[class*="userRow"]').length > 0) return true;
+		if (document.querySelectorAll('[class*="assistant"]').length > 0) return true;
+	} catch (error) { /* ignore */ }
+	return false;
+}
+
 function syncWhale() {
 	if (!A.cfg || A.canary.disabled || !moduleOn('fx') || (A.cfg.fx && A.cfg.fx.whale === false)) {
 		whaleStop();
+		return;
+	}
+	// 新对话（空白首页）交给官方 5.7s 鲸鱼跃出动画，插件鲸鱼只在已有对话的页面出现
+	if (!hasConversationView()) {
+		if (WHALE.running) whaleStop();
 		return;
 	}
 	if (!WHALE.running || !WHALE.holder || !document.body.contains(WHALE.holder)) {
