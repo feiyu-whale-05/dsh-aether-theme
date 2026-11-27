@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.82';
+var VERSION = '1.0.83';
 
 var A = {
 	ctx: null,
@@ -649,17 +649,8 @@ function removeMaskLayers() {
 function watchMaskLayers() {
 	try {
 		if (A.maskObserver) return;
-		A.maskObserver = new MutationObserver(function (mutations) {
-			var hit = false;
-			for (var i = 0; i < mutations.length && !hit; i += 1) {
-				var added = mutations[i].addedNodes;
-				for (var j = 0; j < added.length; j += 1) {
-					if (isMaskNode(added[j]) || (added[j].querySelector && added[j].querySelector(MASK_SELECTOR))) { hit = true; break; }
-				}
-			}
-			if (hit) setTimeout(removeMaskLayers, 30);
-		});
-		A.maskObserver.observe(document.body, { childList: true, subtree: true });
+		A.maskObserver = true;
+		watchDom(removeMaskLayers);
 	} catch (error) { /* ignore */ }
 }
 
@@ -688,6 +679,68 @@ function clearTopbarMark() {
 			node.removeAttribute('data-aether-topbar');
 		});
 	} catch (error) { /* ignore */ }
+}
+
+// ── 共享 DOM 观察总线 ────────────────────────────────────────────────
+// 之前 usermd / 气泡挂件 / 头像 / 遮罩各挂一个 MutationObserver，且全部监听
+// body 的 childList+subtree：一次 DOM 变化要跑 4 份回调，面板滚动时开销明显。
+// 这里收成一个观察者 + 订阅列表 + 250ms 合并窗口。
+var DOM_WATCH = { observer: null, subs: [], timer: null };
+
+function watchDom(fn) {
+	try {
+		if (typeof fn !== 'function') return;
+		if (DOM_WATCH.subs.indexOf(fn) === -1) DOM_WATCH.subs.push(fn);
+		if (DOM_WATCH.observer) return;
+		DOM_WATCH.observer = new MutationObserver(function () {
+			if (DOM_WATCH.timer) return;
+			DOM_WATCH.timer = setTimeout(DOM_WATCH_FLUSH, 250);
+		});
+		DOM_WATCH.observer.observe(document.body, { childList: true, subtree: true });
+	} catch (error) { /* ignore */ }
+}
+
+function DOM_WATCH_FLUSH() {
+	DOM_WATCH.timer = null;
+	for (var i = 0; i < DOM_WATCH.subs.length; i += 1) {
+		try { DOM_WATCH.subs[i](); } catch (error) { /* ignore */ }
+	}
+}
+
+function unwatchDom(fn) {
+	try {
+		var index = DOM_WATCH.subs.indexOf(fn);
+		if (index !== -1) DOM_WATCH.subs.splice(index, 1);
+		if (DOM_WATCH.subs.length) return;
+		if (DOM_WATCH.observer) DOM_WATCH.observer.disconnect();
+		DOM_WATCH.observer = null;
+		if (DOM_WATCH.timer) { clearTimeout(DOM_WATCH.timer); DOM_WATCH.timer = null; }
+	} catch (error) { /* ignore */ }
+}
+
+/** 低频轮询总线：把多个 1~5s 的检查合并到一个 tick，减少唤醒次数。 */
+var IDLE_TICK = { timer: null, entries: [] };
+
+function idleEvery(seconds, fn) {
+	try {
+		IDLE_TICK.entries.push({ every: Math.max(1, seconds), last: 0, fn: fn });
+		if (IDLE_TICK.timer) return;
+		IDLE_TICK.timer = setInterval(function () {
+			var now = Date.now();
+			for (var i = 0; i < IDLE_TICK.entries.length; i += 1) {
+				var entry = IDLE_TICK.entries[i];
+				if (now - entry.last < entry.every * 1000) continue;
+				entry.last = now;
+				try { entry.fn(); } catch (error) { /* ignore */ }
+			}
+		}, 1000);
+	} catch (error) { /* ignore */ }
+}
+
+function idleStop() {
+	try { if (IDLE_TICK.timer) clearInterval(IDLE_TICK.timer); } catch (error) { /* ignore */ }
+	IDLE_TICK.timer = null;
+	IDLE_TICK.entries = [];
 }
 
 function ensureStage() {
@@ -1226,7 +1279,8 @@ function safeExit() {
 
 function startCanary() {
 	if (A.canary.timer) return;
-	A.canary.timer = setInterval(canaryTick, 1000);
+	A.canary.timer = true;
+	idleEvery(2, canaryTick);
 	if (A.canary.timer && typeof A.canary.timer.unref === 'function') A.canary.timer.unref();
 }
 
