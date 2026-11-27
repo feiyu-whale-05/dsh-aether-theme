@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.82';
+		var VERSION = '1.0.83';
 
 		var A = {
 			ctx: null,
@@ -939,17 +939,8 @@ window.__ModuleLoader__.load({
 		function watchMaskLayers() {
 			try {
 				if (A.maskObserver) return;
-				A.maskObserver = new MutationObserver(function (mutations) {
-					var hit = false;
-					for (var i = 0; i < mutations.length && !hit; i += 1) {
-						var added = mutations[i].addedNodes;
-						for (var j = 0; j < added.length; j += 1) {
-							if (isMaskNode(added[j]) || (added[j].querySelector && added[j].querySelector(MASK_SELECTOR))) { hit = true; break; }
-						}
-					}
-					if (hit) setTimeout(removeMaskLayers, 30);
-				});
-				A.maskObserver.observe(document.body, { childList: true, subtree: true });
+				A.maskObserver = true;
+				watchDom(removeMaskLayers);
 			} catch (error) { /* ignore */ }
 		}
 
@@ -978,6 +969,68 @@ window.__ModuleLoader__.load({
 					node.removeAttribute('data-aether-topbar');
 				});
 			} catch (error) { /* ignore */ }
+		}
+
+		// ── 共享 DOM 观察总线 ────────────────────────────────────────────────
+		// 之前 usermd / 气泡挂件 / 头像 / 遮罩各挂一个 MutationObserver，且全部监听
+		// body 的 childList+subtree：一次 DOM 变化要跑 4 份回调，面板滚动时开销明显。
+		// 这里收成一个观察者 + 订阅列表 + 250ms 合并窗口。
+		var DOM_WATCH = { observer: null, subs: [], timer: null };
+
+		function watchDom(fn) {
+			try {
+				if (typeof fn !== 'function') return;
+				if (DOM_WATCH.subs.indexOf(fn) === -1) DOM_WATCH.subs.push(fn);
+				if (DOM_WATCH.observer) return;
+				DOM_WATCH.observer = new MutationObserver(function () {
+					if (DOM_WATCH.timer) return;
+					DOM_WATCH.timer = setTimeout(DOM_WATCH_FLUSH, 250);
+				});
+				DOM_WATCH.observer.observe(document.body, { childList: true, subtree: true });
+			} catch (error) { /* ignore */ }
+		}
+
+		function DOM_WATCH_FLUSH() {
+			DOM_WATCH.timer = null;
+			for (var i = 0; i < DOM_WATCH.subs.length; i += 1) {
+				try { DOM_WATCH.subs[i](); } catch (error) { /* ignore */ }
+			}
+		}
+
+		function unwatchDom(fn) {
+			try {
+				var index = DOM_WATCH.subs.indexOf(fn);
+				if (index !== -1) DOM_WATCH.subs.splice(index, 1);
+				if (DOM_WATCH.subs.length) return;
+				if (DOM_WATCH.observer) DOM_WATCH.observer.disconnect();
+				DOM_WATCH.observer = null;
+				if (DOM_WATCH.timer) { clearTimeout(DOM_WATCH.timer); DOM_WATCH.timer = null; }
+			} catch (error) { /* ignore */ }
+		}
+
+		/** 低频轮询总线：把多个 1~5s 的检查合并到一个 tick，减少唤醒次数。 */
+		var IDLE_TICK = { timer: null, entries: [] };
+
+		function idleEvery(seconds, fn) {
+			try {
+				IDLE_TICK.entries.push({ every: Math.max(1, seconds), last: 0, fn: fn });
+				if (IDLE_TICK.timer) return;
+				IDLE_TICK.timer = setInterval(function () {
+					var now = Date.now();
+					for (var i = 0; i < IDLE_TICK.entries.length; i += 1) {
+						var entry = IDLE_TICK.entries[i];
+						if (now - entry.last < entry.every * 1000) continue;
+						entry.last = now;
+						try { entry.fn(); } catch (error) { /* ignore */ }
+					}
+				}, 1000);
+			} catch (error) { /* ignore */ }
+		}
+
+		function idleStop() {
+			try { if (IDLE_TICK.timer) clearInterval(IDLE_TICK.timer); } catch (error) { /* ignore */ }
+			IDLE_TICK.timer = null;
+			IDLE_TICK.entries = [];
 		}
 
 		function ensureStage() {
@@ -1516,7 +1569,8 @@ window.__ModuleLoader__.load({
 
 		function startCanary() {
 			if (A.canary.timer) return;
-			A.canary.timer = setInterval(canaryTick, 1000);
+			A.canary.timer = true;
+			idleEvery(2, canaryTick);
 			if (A.canary.timer && typeof A.canary.timer.unref === 'function') A.canary.timer.unref();
 		}
 
@@ -1824,7 +1878,25 @@ window.__ModuleLoader__.load({
 		 * 主投影：把配置写进 CSS 变量。
 		 * @param {string} reason - 变更来源（启动 / 保存 / 重置 / 主题跟随）
 		 */
+		/** 同一帧内的多次 applyAppearance 合并成一次（拖动滑杆时 onInput 每像素都触发）。 */
 		function applyAppearance(reason) {
+			if (!A.cfg) return;
+			try {
+				A.pendingApplyReason = reason || A.pendingApplyReason || 'apply';
+				if (A.applyRaf) return;
+				A.applyRaf = requestAnimationFrame(function () {
+					A.applyRaf = null;
+					var why = A.pendingApplyReason;
+					A.pendingApplyReason = null;
+					try { applyAppearanceNow(why || 'apply'); } catch (error) { /* ignore */ }
+				});
+			} catch (error) {
+				// rAF 不可用时同步执行
+				applyAppearanceNow(reason || 'apply');
+			}
+		}
+
+		function applyAppearanceNow(reason) {
 			if (!A.cfg) return;
 			if (A.canary.disabled) return;
 			if (A.cfg.enabled === false) {
@@ -2609,13 +2681,21 @@ window.__ModuleLoader__.load({
 					hue: hueBase + (Math.random() * 70 - 20),
 				});
 			}
-			if (METEOR.particles.length > 280) METEOR.particles.splice(0, METEOR.particles.length - 280);
+			if (METEOR.particles.length > 240) METEOR.particles.splice(0, METEOR.particles.length - 240);
+			// 粒子重新出现：如果循环已停，重新拉起
+			if (METEOR.running && METEOR.raf === null) METEOR.raf = requestAnimationFrame(meteorTick);
 		}
 
 		function meteorTick() {
-			if (!METEOR.running) return;
+			if (!METEOR.running) { METEOR.raf = null; return; }
 			var ctx = METEOR.ctx;
-			if (!ctx) { METEOR.raf = requestAnimationFrame(meteorTick); return; }
+			if (!ctx) { METEOR.raf = null; return; }
+			// 空闲停帧：没有粒子时不占 rAF（之前即使静止也每秒空转 60 次）
+			if (METEOR.particles.length === 0) {
+				ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+				METEOR.raf = null;
+				return;
+			}
 			var w = window.innerWidth;
 			var h = window.innerHeight;
 			ctx.clearRect(0, 0, w, h);
@@ -2872,7 +2952,7 @@ window.__ModuleLoader__.load({
 		var WHALE_MOUSE_STRENGTH = 0.8;
 		var WHALE_MOUSE_DISTORT = 5;
 		var WHALE_LOOSE = 1;
-		var WHALE_FPS = 30;
+		var WHALE_FPS = 26;   // 30 → 26：肉眼几乎无差，绘制开销降 13%
 
 		function whaleSmoothstep(a, b, t) {
 			var x = Math.min(1, Math.max(0, (t - a) / (b - a)));
@@ -4870,25 +4950,15 @@ window.__ModuleLoader__.load({
 		function startUserMarkdown() {
 			if (userMdObserver) return;
 			try {
-				userMdObserver = new MutationObserver(function () {
-					if (userMdTimer) return;
-					userMdTimer = setTimeout(function () {
-						userMdTimer = null;
-						scanUserMarkdown();
-					}, 220);
-				});
-				userMdObserver.observe(document.body, { childList: true, subtree: true });
-			} catch (error) {
-				pushLog('warn', '用户 markdown observer 启动失败', { message: String(error && error.message) });
-			}
-			scanUserMarkdown();
+				userMdObserver = true;
+				watchDom(scanUserMarkdown);
+				scanUserMarkdown();
+			} catch (error) { /* ignore */ }
 		}
 
 		function stopUserMarkdown() {
-			if (userMdObserver) {
-				try { userMdObserver.disconnect(); } catch (error) { /* ignore */ }
-				userMdObserver = null;
-			}
+			try { unwatchDom(scanUserMarkdown); } catch (error) { /* ignore */ }
+			userMdObserver = null;
 			if (userMdTimer) { clearTimeout(userMdTimer); userMdTimer = null; }
 		}
 
@@ -4913,15 +4983,15 @@ window.__ModuleLoader__.load({
 
 		function startBubbleDeco() {
 			try {
-				if (bubbleDecoObserver || !document.body) return;
-				bubbleDecoObserver = new MutationObserver(scheduleBubbleDecoScan);
-				bubbleDecoObserver.observe(document.body, { childList: true, subtree: true });
+				if (bubbleDecoObserver) return;
+				bubbleDecoObserver = true;
+				watchDom(scanBubbleDeco);
 				scheduleBubbleDecoScan();
 			} catch (error) { /* ignore */ }
 		}
 
 		function stopBubbleDeco() {
-			try { if (bubbleDecoObserver) bubbleDecoObserver.disconnect(); } catch (error) { /* ignore */ }
+			try { unwatchDom(scanBubbleDeco); } catch (error) { /* ignore */ }
 			bubbleDecoObserver = null;
 			if (bubbleDecoTimer) { clearTimeout(bubbleDecoTimer); bubbleDecoTimer = null; }
 			clearBubbleDeco();
@@ -5196,15 +5266,15 @@ window.__ModuleLoader__.load({
 
 		function startAvatars() {
 			try {
-				if (avatarObserver || !document.body) return;
-				avatarObserver = new MutationObserver(scheduleAvatarScan);
-				avatarObserver.observe(document.body, { childList: true, subtree: true });
+				if (avatarObserver) return;
+				avatarObserver = true;
+				watchDom(scanAvatars);
 				scheduleAvatarScan();
 			} catch (error) { /* ignore */ }
 		}
 
 		function stopAvatars() {
-			try { if (avatarObserver) avatarObserver.disconnect(); } catch (error) { /* ignore */ }
+			try { unwatchDom(scanAvatars); } catch (error) { /* ignore */ }
 			avatarObserver = null;
 			if (avatarTimer) { clearTimeout(avatarTimer); avatarTimer = null; }
 			try {
@@ -5388,12 +5458,12 @@ window.__ModuleLoader__.load({
 			// 2.33) 会话页切换：首页没有消息时不画插件鲸鱼，发消息后自动补上
 			try {
 				var lastConversation = null;
-				A.conversationTimer = setInterval(function () {
+				idleEvery(2, function () {
 					var now = hasConversationView();
 					if (now === lastConversation) return;
 					lastConversation = now;
 					try { syncWhale(); } catch (error) { /* ignore */ }
-				}, 1500);
+				});
 			} catch (error) { /* ignore */ }
 
 			// 2.34) 视频壁纸续播（窗口恢复/可见性变化）
@@ -5401,11 +5471,11 @@ window.__ModuleLoader__.load({
 				A.videoResumeOff = function () {
 					document.removeEventListener('visibilitychange', ensureVideoPlaying);
 					window.removeEventListener('focus', ensureVideoPlaying);
-					A.videoTimer && clearInterval(A.videoTimer);
 				};
 				document.addEventListener('visibilitychange', ensureVideoPlaying);
 				window.addEventListener('focus', ensureVideoPlaying);
-				A.videoTimer = setInterval(ensureVideoPlaying, 4000);
+				// 兜底检查并入低频总线（6s 一次，比原来 4s 更省）
+				idleEvery(6, ensureVideoPlaying);
 			} catch (error) { /* ignore */ }
 
 			// 2.35) 气泡装饰观察器
@@ -5435,12 +5505,13 @@ window.__ModuleLoader__.load({
 				if (typeof ctx.effect === 'function') {
 					ctx.effect(function () {
 						return function () {
-							try { if (A.canary.timer) clearInterval(A.canary.timer); } catch (error) { /* ignore */ }
+							try { idleStop(); } catch (error) { /* ignore */ }
+							try { if (A.applyRaf) cancelAnimationFrame(A.applyRaf); A.applyRaf = null; } catch (error) { /* ignore */ }
 							try { if (A.rotationTimer) clearInterval(A.rotationTimer); } catch (error) { /* ignore */ }
 							try { if (A.diagTimer) clearInterval(A.diagTimer); } catch (error) { /* ignore */ }
 							try { if (A.observer) A.observer.disconnect(); } catch (error) { /* ignore */ }
 							try { stopUserMarkdown(); } catch (error) { /* ignore */ }
-							try { if (A.maskObserver) A.maskObserver.disconnect(); } catch (error) { /* ignore */ }
+							try { unwatchDom(removeMaskLayers); } catch (error) { /* ignore */ }
 							try { stopFx(); } catch (error) { /* ignore */ }
 							try { whaleStop(); } catch (error) { /* ignore */ }
 							try { stopGlow(); stopPress(); } catch (error) { /* ignore */ }
@@ -5450,6 +5521,8 @@ window.__ModuleLoader__.load({
 							try { if (A.themeOff) A.themeOff(); } catch (error) { /* ignore */ }
 							try { if (A.mediaOff) A.mediaOff(); } catch (error) { /* ignore */ }
 							try { if (A.motionOff) A.motionOff(); } catch (error) { /* ignore */ }
+							try { if (A.videoResumeOff) A.videoResumeOff(); } catch (error) { /* ignore */ }
+							try { clearTopbarMark(); } catch (error) { /* ignore */ }
 							try { removeStyle(); removeStage(); } catch (error) { /* ignore */ }
 							try {
 								document.documentElement.removeAttribute('data-dsh-aether');
