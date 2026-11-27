@@ -18,15 +18,15 @@ function scheduleBubbleDecoScan() {
 
 function startBubbleDeco() {
 	try {
-		if (bubbleDecoObserver || !document.body) return;
-		bubbleDecoObserver = new MutationObserver(scheduleBubbleDecoScan);
-		bubbleDecoObserver.observe(document.body, { childList: true, subtree: true });
+		if (bubbleDecoObserver) return;
+		bubbleDecoObserver = true;
+		watchDom(scanBubbleDeco);
 		scheduleBubbleDecoScan();
 	} catch (error) { /* ignore */ }
 }
 
 function stopBubbleDeco() {
-	try { if (bubbleDecoObserver) bubbleDecoObserver.disconnect(); } catch (error) { /* ignore */ }
+	try { unwatchDom(scanBubbleDeco); } catch (error) { /* ignore */ }
 	bubbleDecoObserver = null;
 	if (bubbleDecoTimer) { clearTimeout(bubbleDecoTimer); bubbleDecoTimer = null; }
 	clearBubbleDeco();
