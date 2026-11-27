@@ -168,6 +168,18 @@ var apply = function apply(ctx) {
 		notify();
 	});
 
+	// 2.34) 视频壁纸续播（窗口恢复/可见性变化）
+	try {
+		A.videoResumeOff = function () {
+			document.removeEventListener('visibilitychange', ensureVideoPlaying);
+			window.removeEventListener('focus', ensureVideoPlaying);
+			A.videoTimer && clearInterval(A.videoTimer);
+		};
+		document.addEventListener('visibilitychange', ensureVideoPlaying);
+		window.addEventListener('focus', ensureVideoPlaying);
+		A.videoTimer = setInterval(ensureVideoPlaying, 4000);
+	} catch (error) { /* ignore */ }
+
 	// 2.35) 气泡装饰观察器
 	try { startBubbleDeco(); } catch (error) { /* ignore */ }
 	try { startAvatars(); } catch (error) { /* ignore */ }
