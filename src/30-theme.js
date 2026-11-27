@@ -184,7 +184,25 @@ function pixelFrameUri(palette, slicePx) {
  * 主投影：把配置写进 CSS 变量。
  * @param {string} reason - 变更来源（启动 / 保存 / 重置 / 主题跟随）
  */
+/** 同一帧内的多次 applyAppearance 合并成一次（拖动滑杆时 onInput 每像素都触发）。 */
 function applyAppearance(reason) {
+	if (!A.cfg) return;
+	try {
+		A.pendingApplyReason = reason || A.pendingApplyReason || 'apply';
+		if (A.applyRaf) return;
+		A.applyRaf = requestAnimationFrame(function () {
+			A.applyRaf = null;
+			var why = A.pendingApplyReason;
+			A.pendingApplyReason = null;
+			try { applyAppearanceNow(why || 'apply'); } catch (error) { /* ignore */ }
+		});
+	} catch (error) {
+		// rAF 不可用时同步执行
+		applyAppearanceNow(reason || 'apply');
+	}
+}
+
+function applyAppearanceNow(reason) {
 	if (!A.cfg) return;
 	if (A.canary.disabled) return;
 	if (A.cfg.enabled === false) {
