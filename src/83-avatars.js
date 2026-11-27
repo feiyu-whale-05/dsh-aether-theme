@@ -173,15 +173,15 @@ function scheduleAvatarScan() {
 
 function startAvatars() {
 	try {
-		if (avatarObserver || !document.body) return;
-		avatarObserver = new MutationObserver(scheduleAvatarScan);
-		avatarObserver.observe(document.body, { childList: true, subtree: true });
+		if (avatarObserver) return;
+		avatarObserver = true;
+		watchDom(scanAvatars);
 		scheduleAvatarScan();
 	} catch (error) { /* ignore */ }
 }
 
 function stopAvatars() {
-	try { if (avatarObserver) avatarObserver.disconnect(); } catch (error) { /* ignore */ }
+	try { unwatchDom(scanAvatars); } catch (error) { /* ignore */ }
 	avatarObserver = null;
 	if (avatarTimer) { clearTimeout(avatarTimer); avatarTimer = null; }
 	try {
