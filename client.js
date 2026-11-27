@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.81';
+		var VERSION = '1.0.82';
 
 		var A = {
 			ctx: null,
@@ -3859,6 +3859,69 @@ window.__ModuleLoader__.load({
 								String(Math.round((item.opacity === undefined ? 0.5 : item.opacity) * 100)) + '%'),
 						);
 					}),
+				),
+				h('div', { className: 'aeth-card' },
+					h('h3', null, '开机动画（dsh-boot-splash-pro）'),
+					h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
+						'触发方式：仅在 DSH 启动时播放一次；打开 / 切换对话不再播放片头。片源与贴合方式由 dsh-boot-splash-pro 管理。'),
+					(function () {
+						var boot = react.useState(null);
+						var bootData = boot[0];
+						var setBootData = boot[1];
+						var now = react.useState('');
+						var previewId = now[0];
+						var setPreviewId = now[1];
+						react.useEffect(function () {
+							var alive = true;
+							fetch('/dsh-boot-splash-pro/videos.json', { credentials: 'same-origin' })
+								.then(function (res) { return res.json(); })
+								.then(function (json) { if (alive) setBootData(json); })
+								.catch(function () { if (alive) setBootData({ error: true }); });
+							return function () { alive = false; };
+						}, []);
+						if (!bootData) {
+							return h('div', { className: 'aeth-note' }, '正在读取片库…');
+						}
+						if (bootData.error) {
+							return h('div', { className: 'aeth-note' }, '未检测到 dsh-boot-splash-pro（或片库接口不可用）。安装后重启 DSH 即可。');
+						}
+						var videos = Array.isArray(bootData.videos) ? bootData.videos : [];
+						var activeName = '';
+						for (var i = 0; i < videos.length; i += 1) {
+							if (videos[i].id === bootData.activeId) activeName = videos[i].name;
+						}
+						return h('div', null,
+							h('div', { className: 'aeth-row' },
+								h('span', { className: 'aeth-note' }, '当前片头：' + (activeName || bootData.activeId || '未选')),
+								h('span', { className: 'aeth-note' }, '共 ' + videos.length + ' 段'),
+							),
+							videos.length
+								? h('div', { className: 'aeth-grid', style: { marginTop: '10px' } },
+									videos.map(function (item) {
+										var url = '/dsh-boot-splash-pro/media/' + encodeURIComponent(item.id);
+										var isPlaying = previewId === item.id;
+										return h('div', {
+											key: item.id,
+											className: 'aeth-wall' + (bootData.activeId === item.id ? ' on' : ''),
+											style: { cursor: 'pointer' },
+											onClick: function () { setPreviewId(isPlaying ? '' : item.id); },
+										},
+											h('video', {
+												src: url,
+												muted: true,
+												loop: true,
+												playsInline: true,
+												preload: 'metadata',
+												controls: isPlaying,
+												autoPlay: isPlaying,
+											}),
+											h('span', { className: 'aeth-badge' }, (item.name || item.id) + (isPlaying ? ' · 播放中' : ' · 点击预览')),
+										);
+									})
+								)
+								: h('div', { className: 'aeth-note' }, '片库为空：在 dsh-boot-splash-pro 的设置里上传/选择片头。'),
+						);
+					})(),
 				),
 				h('div', { className: 'aeth-card' },
 					h('h3', null, '消息头像'),
