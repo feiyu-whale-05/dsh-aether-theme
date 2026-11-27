@@ -295,7 +295,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.78';
+		var VERSION = '1.0.79';
 
 		var A = {
 			ctx: null,
@@ -2211,6 +2211,20 @@ window.__ModuleLoader__.load({
 						video.play().catch(function () { /* 留给用户点击/悬停 */ });
 					});
 				}
+				// 记住当前视频，供「恢复可见/被暂停」时续播
+				A.videoEl = video;
+				video.addEventListener('pause', function () {
+					// 窗口最小化、后台节流、系统休眠都会暂停视频；恢复后自动续播
+					if (document.hidden) return;
+					setTimeout(function () {
+						if (video.isConnected && video.paused && !document.hidden) {
+							video.play().catch(function () { /* ignore */ });
+						}
+					}, 300);
+				});
+				video.addEventListener('ended', function () {
+					try { video.currentTime = 0; video.play().catch(function () { /* ignore */ }); } catch (error) { /* ignore */ }
+				});
 				layer.appendChild(video);
 				return layer;
 			}
@@ -2267,6 +2281,16 @@ window.__ModuleLoader__.load({
 		}
 
 		/** 应用壁纸配置（模式/来源/预设/本地库 id）。 */
+		/** 页面重新可见 / 窗口获得焦点时，把被节流暂停的视频壁纸续播。 */
+		function ensureVideoPlaying() {
+			try {
+				var video = A.videoEl;
+				if (!video || !video.isConnected) return;
+				if (document.hidden) return;
+				if (video.paused) video.play().catch(function () { /* ignore */ });
+			} catch (error) { /* ignore */ }
+		}
+
 		function applyWallpaper(reason) {
 			if (A.canary.disabled) return;
 			var config = A.cfg && A.cfg.wallpaper;
@@ -5250,6 +5274,18 @@ window.__ModuleLoader__.load({
 				applyWallpaper('offline');
 				notify();
 			});
+
+			// 2.34) 视频壁纸续播（窗口恢复/可见性变化）
+			try {
+				A.videoResumeOff = function () {
+					document.removeEventListener('visibilitychange', ensureVideoPlaying);
+					window.removeEventListener('focus', ensureVideoPlaying);
+					A.videoTimer && clearInterval(A.videoTimer);
+				};
+				document.addEventListener('visibilitychange', ensureVideoPlaying);
+				window.addEventListener('focus', ensureVideoPlaying);
+				A.videoTimer = setInterval(ensureVideoPlaying, 4000);
+			} catch (error) { /* ignore */ }
 
 			// 2.35) 气泡装饰观察器
 			try { startBubbleDeco(); } catch (error) { /* ignore */ }
