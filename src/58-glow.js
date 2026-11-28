@@ -9,7 +9,7 @@ var GLOW = { el: null, raf: null, x: 0, y: 0, running: false };
 var GLOW_RADIUS = 180;
 var GLOW_COLOR = 'rgba(90, 215, 255, 0.17)';
 
-var PRESS = { raf: null, current: null, running: false, timers: new WeakMap() };
+var PRESS = { raf: null, current: null, running: false, timers: new WeakMap(), rect: null, rectPane: null, rectAt: 0 };
 var TILT_MAX = 0.0175; // Aqua 原值：≈1°
 var TILT_PERSPECTIVE = 800;
 var SETTLE_MS = 240;
@@ -72,9 +72,28 @@ function stopGlow() {
 }
 
 // ── press：悬停面板的轻微 3D 倾斜 ────────────────────────────────────
+var PRESS_MOTION = { reduce: false, hooked: false };
+
+/** prefers-reduced-motion 只在 change 事件里读一次；每帧新建 MediaQueryList 太贵。 */
+function pressMotionReduce() {
+	if (!PRESS_MOTION.hooked) {
+		PRESS_MOTION.hooked = true;
+		try {
+			var media = window.matchMedia('(prefers-reduced-motion: reduce)');
+			PRESS_MOTION.reduce = Boolean(media.matches);
+			if (typeof media.addEventListener === 'function') {
+				media.addEventListener('change', function (event) { PRESS_MOTION.reduce = Boolean(event.matches); });
+			}
+		} catch (error) {
+			PRESS_MOTION.reduce = false;
+		}
+	}
+	return PRESS_MOTION.reduce;
+}
+
 function pressTiltable(pane) {
 	if (!pane) return false;
-	if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+	if (pressMotionReduce()) return false;
 	// Aqua 规则：侧栏里打开 dialog 时不做 tilt
 	if (pressIsSidebar(pane) && document.querySelector('[role="dialog"]') !== null) return false;
 	return true;
@@ -100,32 +119,6 @@ function pressSoftDown(pane, on) {
 	} catch (error) { /* ignore */ }
 }
 
-/** 兜底：向上找第一个「fixed/absolute 且尺寸像对话框」的祖先（DSH 的对话框是 portal 到 body 的容器）。 */
-function pressFindFloatingPane(target) {
-	try {
-		var node = target;
-		var depth = 0;
-		while (node && node !== document.body && depth < 10) {
-			var style = window.getComputedStyle(node);
-			// 排除主面板（含设置页/图片预览/插件列表）、dialog、插件自己的面板
-			// 排除「祖先链里有全局面板/插件面板/dialog」的节点：
-			// 设置页内部元素此前会被误判成浮层，导致设置页被下压
-			if (node.closest && node.closest('[data-global-panel], .aeth-root, [role="dialog"], [aria-modal="true"]')) {
-				node = node.parentElement;
-				depth += 1;
-				continue;
-			}
-			if ((style.position === 'fixed' || style.position === 'absolute')
-				&& node.offsetWidth > 360 && node.offsetHeight > 240) {
-				return node;
-			}
-			node = node.parentElement;
-			depth += 1;
-		}
-	} catch (error) { /* ignore */ }
-	return null;
-}
-
 function pressFindPane(target) {
 	if (!target) return null;
 	// 先找「内层浮层」：对话框/弹窗通常是 fixed/absolute 的大容器，
@@ -133,22 +126,6 @@ function pressFindPane(target) {
 	// 不再做「浮动浮层兜底」：设置对话框/设置页都不该被下压
 	if (typeof target.closest !== 'function') return null;
 	return target.closest(PRESS_PANE_SELECTOR);
-}
-
-/** 侧栏里是否有 position:fixed 后代（有的话不能 transform，否则会被挤出原位）。 */
-function pressHasFixedChild(pane) {
-	try {
-		var nodes = pane.children;
-		for (var i = 0; i < nodes.length && i < 12; i += 1) {
-			var style = window.getComputedStyle(nodes[i]);
-			if (style.position === 'fixed') return true;
-			var inner = nodes[i].children;
-			for (var j = 0; j < inner.length && j < 12; j += 1) {
-				if (window.getComputedStyle(inner[j]).position === 'fixed') return true;
-			}
-		}
-	} catch (error) { /* ignore */ }
-	return false;
 }
 
 function pressNeutral(pane) {
@@ -182,8 +159,16 @@ function pressApply() {
 		pressSoftDown(pane, true);
 		return;
 	}
-	var rect = pane.getBoundingClientRect();
-	if (rect.width === 0 || rect.height === 0) return;
+	// rect 缓存：只在"换了 pane"或 6 帧内没取过时重新测量。
+	// 旧实现每次 pointermove（高刷鼠标 1000Hz）都 getBoundingClientRect()，强制同步布局。
+	var now = Date.now();
+	if (PRESS.rectPane !== pane || !PRESS.rect || now - PRESS.rectAt > 500) {
+		PRESS.rect = pane.getBoundingClientRect();
+		PRESS.rectPane = pane;
+		PRESS.rectAt = now;
+	}
+	var rect = PRESS.rect;
+	if (!rect || rect.width === 0 || rect.height === 0) return;
 	var rx = ((GLOW.x - rect.left) / rect.width) * 2 - 1;
 	var ry = ((GLOW.y - rect.top) / rect.height) * 2 - 1;
 	rx = Math.max(-1, Math.min(1, rx));
@@ -209,13 +194,20 @@ function pressOnMove(event) {
 	if (!PRESS.running) return;
 	var target = event.target;
 	var pane = pressFindPane(target);
-	if (pane) {
-		A.pressDebug = {
-			tag: pane.tagName ? pane.tagName.toLowerCase() : '?',
-			cls: String(pane.className || '').slice(0, 120),
-			role: pane.getAttribute ? (pane.getAttribute('role') || '') : '',
-			position: (function () { try { return window.getComputedStyle(pane).position; } catch (error) { return ''; } })(),
-		};
+	// 调试信息只在"目标变化"时更新，且 getComputedStyle 100ms 节流。
+	// 旧实现鼠标每移动一次就无条件调一次 getComputedStyle —— 强制样式重算。
+	if (pane && pane !== PRESS.current) {
+		var nowMs = Date.now();
+		A.pressDebug = A.pressDebug || {};
+		A.pressDebug.tag = pane.tagName ? pane.tagName.toLowerCase() : '?';
+		A.pressDebug.cls = String(pane.className || '').slice(0, 120);
+		A.pressDebug.role = pane.getAttribute ? (pane.getAttribute('role') || '') : '';
+		if (!A.pressDebug.at || nowMs - A.pressDebug.at > 100) {
+			A.pressDebug.position = (function () {
+				try { return window.getComputedStyle(pane).position; } catch (error) { return ''; }
+			})();
+			A.pressDebug.at = nowMs;
+		}
 	}
 	if (pane !== PRESS.current) {
 		if (PRESS.current) pressNeutral(PRESS.current);
