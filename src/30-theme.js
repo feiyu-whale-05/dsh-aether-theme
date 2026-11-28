@@ -664,17 +664,34 @@ function tagAppFrame() {
 		var sidebar = document.querySelector('[class*="sidebarCol"], [class*="sidebar"]');
 		diag.sidebar = Boolean(sidebar);
 
-		// ① 从侧栏往上走，取 #root 的直接子元素 —— AppFrame 必然是它
+		// ① 从侧栏往上走，取**第一个真的有盒子**的祖先。
+		//    实测：侧栏 → #root 的直接子元素是一个 `display: contents` 的包装层，
+		//    getBoundingClientRect() 恒为 0×0；真正的 AppFrame 是它里面的 `*_frame`
+		//    （全屏 1842×1002）。以前直接取到那个 0×0 包装层，导致
+		//    `::before`（顶栏背景）画在零面积元素上 —— 顶栏背景图从来没显示过。
 		if (sidebar) {
-			var node = sidebar;
-			var guard = 0;
-			while (node && node.parentElement && node.parentElement !== root && guard < 40) {
-				node = node.parentElement;
-				guard += 1;
+			var viewArea = window.innerWidth * window.innerHeight;
+			var cursor = sidebar;
+			var hop = 0;
+			while (cursor && hop < 40) {
+				var box = cursor.getBoundingClientRect();
+				var style = window.getComputedStyle(cursor);
+				var hasBox = style.display !== 'contents' && box.width > 2 && box.height > 2;
+				var bigEnough = viewArea > 0 && (box.width * box.height) / viewArea >= 0.3;
+				if (hasBox && bigEnough) break;
+				cursor = cursor.parentElement;
+				hop += 1;
 			}
-			if (node && node.parentElement === root) {
-				marked = node;
-				diag.why = 'sidebar→rootChild';
+			if (cursor && cursor !== root) {
+				marked = cursor;
+				diag.why = 'sidebar→largestBox';
+				// 顶栏条高度 = AppFrame 顶边到侧栏顶边的距离（Windows 标题栏那一行）
+				var frameBox = cursor.getBoundingClientRect();
+				var titlebarH = Math.round(sidebar.getBoundingClientRect().top - frameBox.top);
+				if (titlebarH > 0 && titlebarH < 120) {
+					document.documentElement.style.setProperty('--aether-titlebar-h', titlebarH + 'px');
+					diag.titlebarH = titlebarH;
+				}
 			}
 		}
 
