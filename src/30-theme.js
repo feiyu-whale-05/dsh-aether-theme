@@ -412,6 +412,25 @@ function applyAppearanceNow(reason) {
 		}
 	} catch (error) { /* 自定义 CSS 出错不影响主题 */ }
 
+	// 标题栏这一区启用时打个标记：CSS 靠它来决定要不要清掉标签行自带的底色
+	try {
+		var tbCfg = (A.cfg.backgrounds && A.cfg.backgrounds.topbar) || null;
+		var tbOn = Boolean(tbCfg && tbCfg.enabled === true && (tbCfg.image || tbCfg.color));
+		if (tbOn) document.documentElement.setAttribute('data-aether-topbar-on', '1');
+		else document.documentElement.removeAttribute('data-aether-topbar-on');
+	} catch (error) { /* ignore */ }
+
+	// 区域背景图的可读性压暗：只在该区真的挂了背景图时才生效
+	var regionImgDim = 0;
+	try {
+		var bgCfg = (A.cfg && A.cfg.backgrounds) || {};
+		var imgRegions = ['sidebar', 'input', 'bubble', 'topbar', 'titlebar', 'settings'];
+		for (var ir = 0; ir < imgRegions.length; ir += 1) {
+			var item = bgCfg[imgRegions[ir]];
+			if (item && item.enabled === true && item.image) { regionImgDim = 0.34; break; }
+		}
+	} catch (error) { regionImgDim = 0; }
+
 	// 壁纸压暗：原来用 filter: brightness(x) 每帧做一次全屏离屏滤镜。
 	// brightness<1 的压暗效果与「叠一层黑 alpha=1-brightness」视觉等价，
 	// 而后者是普通绘制，不做离屏采样。brightness>1 无法用遮罩表达，才保留 filter。
@@ -464,6 +483,7 @@ function applyAppearanceNow(reason) {
 		'--aether-transition': clamp(A.cfg.theme.transitionMs, 0, 2000) + 'ms',
 		// 压暗合并：dim（用户主动的黑色蒙层）+ (1 - brightness)（原本由 filter 承担的部分）
 		'--aether-veil': 'rgba(0,0,0,' + veilAlpha + ')',
+		'--aether-region-img-dim': String(regionImgDim),
 		'--aether-wall-brightness': String(wallBrightness),
 		'--aether-scanline': String(clamp(A.cfg.pixel.scanline === undefined ? 0.08 : A.cfg.pixel.scanline, 0, 0.4)),
 	};
