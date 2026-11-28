@@ -412,6 +412,14 @@ function applyAppearanceNow(reason) {
 		}
 	} catch (error) { /* 自定义 CSS 出错不影响主题 */ }
 
+	// 壁纸压暗：原来用 filter: brightness(x) 每帧做一次全屏离屏滤镜。
+	// brightness<1 的压暗效果与「叠一层黑 alpha=1-brightness」视觉等价，
+	// 而后者是普通绘制，不做离屏采样。brightness>1 无法用遮罩表达，才保留 filter。
+	var wallBrightness = clamp(A.cfg.wallpaper.brightness === undefined ? 0.85 : A.cfg.wallpaper.brightness, 0.3, 1.4);
+	var veilDim = clamp(A.cfg.wallpaper.dim === undefined ? 0 : A.cfg.wallpaper.dim, 0, 1);
+	var veilAlpha = clamp(veilDim + (wallBrightness < 1 ? (1 - wallBrightness) : 0), 0, 1);
+	veilAlpha = Math.round(veilAlpha * 1000) / 1000;
+
 	var vars = {
 		'--aether-accent': palette.accent,
 		'--aether-chrome-fill': rgba(chromeColor, chromeOpacity),
@@ -454,8 +462,9 @@ function applyAppearanceNow(reason) {
 		'--aether-bg-blur': clamp(glass.backgroundBlur === undefined ? 0 : glass.backgroundBlur, 0, 64) + 'px',
 		'--aether-saturation': String(clamp(glass.saturation === undefined ? 1.15 : glass.saturation, 0.2, 2.5)),
 		'--aether-transition': clamp(A.cfg.theme.transitionMs, 0, 2000) + 'ms',
-		'--aether-veil': 'rgba(0,0,0,' + clamp(A.cfg.wallpaper.dim === undefined ? 0 : A.cfg.wallpaper.dim, 0, 1) + ')',
-		'--aether-wall-brightness': String(clamp(A.cfg.wallpaper.brightness === undefined ? 0.85 : A.cfg.wallpaper.brightness, 0.3, 1.4)),
+		// 压暗合并：dim（用户主动的黑色蒙层）+ (1 - brightness)（原本由 filter 承担的部分）
+		'--aether-veil': 'rgba(0,0,0,' + veilAlpha + ')',
+		'--aether-wall-brightness': String(wallBrightness),
 		'--aether-scanline': String(clamp(A.cfg.pixel.scanline === undefined ? 0.08 : A.cfg.pixel.scanline, 0, 0.4)),
 	};
 	Object.keys(vars).forEach(function (name) { setVar(name, vars[name]); });
@@ -568,6 +577,19 @@ function applyAppearanceNow(reason) {
 
 	// 混合模式：给正文区域一个 blend 变量（默认 normal；multiply 用于浅壁纸 + 深字）
 	setVar('--aether-content-blend', A.cfg.theme.mixMode === 'normal' ? 'normal' : (A.cfg.theme.mixMode || 'normal'));
+	// veil 的混合模式只在 veil 真的可见时才用得上；alpha≈0 时强制 normal，
+	// 避免一次没有任何可视贡献的全屏 blend pass。
+	setVar('--aether-veil-blend', veilAlpha > 0.004
+		? (A.cfg.theme.mixMode === 'normal' ? 'normal' : (A.cfg.theme.mixMode || 'normal'))
+		: 'normal');
+	// 只有需要提亮（brightness > 1）时才给出 filter 的开关属性
+	try {
+		var stageForBoost = document.getElementById('dsh-aether-stage');
+		if (stageForBoost) {
+			if (wallBrightness > 1.001) stageForBoost.setAttribute('data-aether-wall-boost', 'on');
+			else stageForBoost.removeAttribute('data-aether-wall-boost');
+		}
+	} catch (error) { /* ignore */ }
 
 	// 玻璃模块关闭时把两个模糊都归零
 	if (!moduleOn('glass')) {
@@ -588,7 +610,7 @@ function applyAppearanceNow(reason) {
 		var glassPx = moduleOn('glass')
 			? clamp(glassCfg.glassBlur === undefined ? 0 : glassCfg.glassBlur, 0, 64)
 			: 0;
-		if (chromePx > 0) {
+		if (chromePx > 0 && !A.chromeBlurBanned) {
 			document.documentElement.setAttribute('data-chrome-blur', 'on');
 		} else {
 			document.documentElement.removeAttribute('data-chrome-blur');
