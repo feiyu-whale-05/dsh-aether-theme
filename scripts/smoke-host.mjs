@@ -32,7 +32,7 @@ const ctx = {
 
 apply(ctx, { dataDir: dir, logDir: join(dir, 'logs'), maxWallpaperMB: 32 })
 console.log('routes:', routes.length, routes.map((r) => r.replace('/dsh-aether', '')).join(' '))
-if (routes.length !== 10) throw new Error(`期望 9 条路由，实际 ${routes.length}`)
+if (routes.length !== 10) throw new Error(`期望 10 条路由，实际 ${routes.length}`)
 if (typeof indexInject !== 'function') throw new Error('index-inject 未挂载')
 const table = []
 indexInject(table)
