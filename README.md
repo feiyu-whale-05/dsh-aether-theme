@@ -66,6 +66,26 @@ npm run smoke      # 槽位注册 + 路由注册冒烟
 npm run verify     # 上面四件套一次跑完
 ```
 
+### 性能基线（v1.2.0 起）
+
+按《性能优化报告》逐项落地，并新增「让插件自己上报实测值」的探针——
+桌面版跑在 `dsh-app://` 自定义协议下没有 CDP 端口可连，`/api/diag.json` 里的
+`effects.layout` / `effects.mediaProbe` 就是唯一可信的现场数据来源。
+
+| 项 | 改动 | 现场实测 |
+|---|---|---|
+| 壁纸每帧全屏 filter | 去掉 `filter: brightness()`；压暗改由 veil 的黑色遮罩承担（`brightness<1` 时视觉等价，提亮才保留 filter） | `media.filter: none`（原 `brightness(0.85)`，全屏） |
+| 全屏 blend 空转 | veil 无贡献（alpha≈0）时不再创建元素；混合模式只在 veil 可见时生效 | 原 `veil: multiply + rgba(0,0,0,0)`，纯浪费 |
+| 失焦/不可见暂停 | 视频解码、小生物 CSS 动画、鲸鱼、流星整体挂起 | `critters.animation.playState: paused`（窗口失焦时） |
+| 流星渐变分配 | 按 (hue,size) 预渲染 sprite + `drawImage`，不再每粒子每帧 `createRadialGradient` | 消除每帧数十次渐变对象分配 |
+| 壁纸滑杆 | 亮度/压暗只改变量，不再每次 `applyWallpaper`（避免重复取色 + syncFx + syncWhale + 二次通知） | — |
+| 全屏磨砂保险丝 | 若 `[data-aether-frame]` 面积 > 60% 视口且带 blur，自动撤掉磨砂并记日志 | 实测该元素是 **0×0**，当前无全屏 blur 成本 |
+
+顺带修掉一个真 bug：桌面版首帧时媒体令牌还没到，旧的 `mediaUrl()` 会回落到把
+**页面令牌塞进 query**，而 Host 只认 header/媒体令牌 → 401 → `<video>` 报
+`DEMUXER_ERROR_COULD_NOT_OPEN`，**视频壁纸静默降级成 CSS 背景**。
+现在不再回落页面令牌，并在媒体令牌到位后重建壁纸层。
+
 ### 审查基线（v1.1.0 起）
 
 `npm run check` 里的两道门是必须过的，它们对应历史线上事故：
