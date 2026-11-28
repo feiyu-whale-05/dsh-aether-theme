@@ -224,6 +224,7 @@ function applyAppearanceNow(reason) {
 			});
 		} catch (error) { /* ignore */ }
 		try { clearTopbarMark(); } catch (error) { /* ignore */ }
+		try { clearMaskMarks(); } catch (error) { /* ignore */ }
 		try {
 			document.documentElement.removeAttribute('data-dsh-aether');
 			document.documentElement.removeAttribute('data-dsh-aether-pixel');
