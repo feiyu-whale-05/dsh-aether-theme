@@ -35,7 +35,7 @@
   "scripts": {
     "build": "node src/build.js",
     "test": "node --test test/*.test.js",
-    "check": "node scripts/check-css.mjs && node scripts/check-hooks.mjs && node scripts/check-version.mjs && node scripts/verify-tokens.mjs",
+    "check": "node scripts/check-css.mjs && node scripts/check-hooks.mjs && node scripts/check-attrs.mjs && node scripts/check-version.mjs && node scripts/verify-tokens.mjs",
     "verify": "npm run build && npm run check && npm run smoke && npm test",
     "smoke": "node scripts/smoke.mjs && node scripts/smoke-host.mjs"
   },
