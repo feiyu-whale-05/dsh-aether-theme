@@ -493,8 +493,11 @@ function AdvancedCards(cfg, mutate) {
 				['sidebar', '侧边栏'],
 				['input', '对话页输入框'],
 				['bubble', '用户气泡'],
-				['topbar', '顶栏（标签栏）'],
-				['titlebar', '标题栏（应用/编辑）'],
+				// 术语（用户口径，2026-11-28 确认）：
+				//   顶栏   = 侧边栏收展按钮 / 应用 / 编辑 —— Windows 标题栏那一条 → key: titlebar
+				//   标题栏 = 对话标题 + 标签页（对话/轨迹/…）           → key: topbar
+				['titlebar', '顶栏（收展按钮 / 应用 / 编辑）'],
+				['topbar', '标题栏（对话标题 / 标签页）'],
 				['settings', '设置页'],
 			].map(function (pair) {
 				var key = pair[0];
@@ -1154,8 +1157,8 @@ function StyleTab(cfg, mutate) {
 		['sidebar', '侧边栏'],
 		['input', '对话输入框'],
 		['bubble', '用户气泡'],
-		['topbar', '顶栏'],
-		['titlebar', '标题栏'],
+		['titlebar', '顶栏（收展按钮 / 应用 / 编辑）'],
+		['topbar', '标题栏（对话标题 / 标签页）'],
 		['settings', '设置页'],
 	];
 	function setCss(key, value) {
