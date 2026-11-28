@@ -19,7 +19,7 @@ function DiagOverlay() {
 	var setClosed = dismissed[1];
 	if (!moduleOn('diag') || !A.cfg.diag || !A.cfg.diag.showOverlay || closed || A.canary.disabled) return null;
 	var anchors = canaryAnchors();
-	var ok = anchors.root && anchors.body && anchors.platform;
+	var ok = canaryContractOk(anchors);
 	return h('div', { className: 'aeth-diag-overlay' },
 		h('div', { className: 'aeth-diag-head' },
 			h('span', null, t('title.diag') + ' · v' + VERSION),
@@ -32,7 +32,7 @@ function DiagOverlay() {
 		h('div', { className: ok ? 'aeth-ok' : 'aeth-bad' }, ok ? t('diag.canaryOk') : t('diag.canaryLost')),
 		h('div', { className: 'aeth-kv' },
 			h('b', null, '#root'), h('span', null, String(anchors.root)),
-			h('b', null, 'data-platform'), h('span', null, String(anchors.platform)),
+			h('b', null, 'data-platform'), h('span', null, anchors.platform ? 'true' : 'false（非契约锚点）'),
 			h('b', null, t('label.strikes')), h('span', null, String(A.canary.strikes)),
 			h('b', null, 'dark'), h('span', null, String(isDarkTheme())),
 		),
