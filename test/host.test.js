@@ -60,27 +60,75 @@ test('wallpaper 库：列表/删除/统计', () => {
   const dir = mkdtempSync(join(tmpdir(), 'aether-wall-'))
   const library = createWallpaperLibrary({ dataDir: dir, routePrefix: '/dsh-aether', maxWallpaperMB: 16, maxWallpapers: 4 })
   library.ensureDir()
-  // 直接写索引 + 文件，模拟已入库
+  // 直接写索引 + 文件，模拟已入库。
+  // id 必须是真实的 16 位 hex：索引被篡改时（例如 id/file 里塞 ../）也要挡得住。
+  const id = '0123456789abcdef'
   const wallDir = join(dir, 'wallpapers')
-  writeFileSync(join(wallDir, 'a.png'), Buffer.from([1, 2, 3]))
+  writeFileSync(join(wallDir, `${id}.png`), Buffer.from([1, 2, 3]))
   writeFileSync(join(wallDir, 'index.json'), JSON.stringify({
-    items: [{ id: 'a', name: 'a.png', file: 'a.png', mime: 'image/png', kind: 'image', category: 'custom', size: 3, addedAt: 1 }],
+    items: [{ id, name: 'a.png', file: `${id}.png`, mime: 'image/png', kind: 'image', category: 'custom', size: 3, addedAt: 1 }],
   }))
   const list = library.list()
   assert.equal(list.length, 1)
-  assert.equal(list[0].url, '/dsh-aether/api/wallpaper/a')
+  // 路由是 kind:'exact'，只有 ?id= 形式能命中；路径段形式必然 404（旧的断言把这个 bug 当成了正确值）
+  assert.equal(list[0].url, `/dsh-aether/api/wallpaper?id=${id}`)
   assert.equal(library.stats().images, 1)
-  assert.equal(library.remove('a').ok, true)
+  assert.equal(library.remove(id).ok, true)
   assert.equal(library.list().length, 0)
-  assert.equal(existsSync(join(wallDir, 'a.png')), false)
+  assert.equal(existsSync(join(wallDir, `${id}.png`)), false)
+})
+
+test('wallpaper 库：拒绝越权索引条目与非法 id', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aether-wall-evil-'))
+  const library = createWallpaperLibrary({ dataDir: dir, routePrefix: '/dsh-aether' })
+  library.ensureDir()
+  const wallDir = join(dir, 'wallpapers')
+  writeFileSync(join(dir, 'secret.txt'), 'top-secret')
+  writeFileSync(join(wallDir, 'index.json'), JSON.stringify({
+    items: [
+      // 路径穿越：file 指到数据目录外面
+      { id: '0123456789abcdef', name: 'x', file: '../../secret.txt', mime: 'text/plain', kind: 'image', size: 10, addedAt: 1 },
+      // 非法 id
+      { id: 'not-hex', name: 'y', file: 'not-hex.png', mime: 'image/png', kind: 'image', size: 10, addedAt: 2 },
+      // 隐藏文件
+      { id: 'fedcba9876543210', name: 'z', file: '.env', mime: 'image/png', kind: 'image', size: 10, addedAt: 3 },
+    ],
+  }))
+  assert.equal(library.list().length, 0, '越权条目必须被过滤掉')
+  assert.equal(library.remove('0123456789abcdef').ok, true)
+  assert.equal(existsSync(join(dir, 'secret.txt')), true, '数据目录外的文件绝不能被删')
+})
+
+test('store：内容未变时完全跳过磁盘写', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aether-store-skip-'))
+  const store = createStore({ dataDir: dir })
+  const first = { version: 1, theme: { accent: '#abcdef' } }
+  const second = { version: 1, theme: { accent: '#123456' } }
+  store.saveConfig(first, 'first')
+  store.saveConfig(second, 'second')
+  const backupCount = () => readdirSync(dir).filter((name) => name.includes('.bak.json')).length
+  const before = backupCount()
+  assert.equal(before, 1, '第一次覆盖应产生一份备份')
+  const again = store.saveConfig(second, 'third')
+  assert.equal(again.skipped, true, '同一份内容不应重复写盘')
+  assert.equal(backupCount(), before, '内容没变不应新增备份')
 })
 
 test('defaultAppearance 结构稳定', () => {
   const appearance = defaultAppearance()
   assert.equal(appearance.version, 1)
   assert.equal(appearance.glass.regions.base >= 0, true)
-  for (const name of ['theme', 'wallpaper', 'glass', 'pixel', 'widget', 'pet', 'boot', 'diag']) {
+  // boot / widget 已拆成独立插件（dsh-boot-splash-pro / dsh-cost-meter），不再属于本插件
+  for (const name of ['theme', 'wallpaper', 'glass', 'pixel', 'diag', 'inputGlow', 'fx']) {
     assert.ok(appearance.modules[name], `模块 ${name} 应存在`)
   }
+  assert.equal(appearance.modules.boot, undefined, 'boot 已迁出')
+  assert.equal(appearance.modules.widget, undefined, 'widget 已迁出')
   assert.equal(appearance.theme.contrastTarget, 7)
+  // 分区背景的唯一位置是顶层（旧版本误放在 glass 下，客户端读顶层就对不上）
+  assert.ok(appearance.backgrounds, 'backgrounds 应在顶层')
+  assert.equal(appearance.glass.backgrounds, undefined, 'glass 下不应再有 backgrounds')
+  for (const key of ['sidebar', 'input', 'bubble', 'topbar', 'titlebar', 'settings']) {
+    assert.ok(appearance.backgrounds[key], `分区 ${key} 默认值应存在`)
+  }
 })
