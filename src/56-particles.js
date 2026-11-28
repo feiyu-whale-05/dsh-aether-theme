@@ -8,7 +8,7 @@
 // 参数风格对齐 Aqua：低透明度（0.22 / 0.55）、蓝灰色（#7ea4df / #a9c6ef）、
 // 长时间周期（9~19s）+ 负延迟让画面一开始就是"已经在动"的状态。
 
-var CRITTERS = { host: null, built: 0 };
+var CRITTERS = { host: null, built: 0, markup: '' };
 
 /** 简笔鱼剪影（自己画的路径，viewBox 0 0 24 16，尾巴朝右）。 */
 	// DeepSeek 品牌鱼剪影（Figma 提取版，与 dsh-client-ui-aqua 同一图形；品牌素材，MIT 代码许可不覆盖该图形）
@@ -109,12 +109,12 @@ function syncFx() {
 		startFx();
 		return;
 	}
-	var host = crittersHost();
-	host.innerHTML = crittersMarkup();
-	CRITTERS.built = host.childElementCount;
-}
-
-function restartFx() {
-	stopFx();
-	startFx();
+	// 差异比较：markup 没变就不碰 DOM。
+	// 旧实现每次都 innerHTML = markup，等于重建 10 个 SVG 节点并让 CSS 动画从头播放
+	// （视觉上是小鱼/气泡位置"跳一下"），而 applyAppearance 在拖滑杆时每帧都会调到这里。
+	var markup = crittersMarkup();
+	if (markup === CRITTERS.markup && CRITTERS.host.contains(CRITTERS.host.firstElementChild)) return;
+	CRITTERS.host.innerHTML = markup;
+	CRITTERS.markup = markup;
+	CRITTERS.built = CRITTERS.host.childElementCount;
 }
