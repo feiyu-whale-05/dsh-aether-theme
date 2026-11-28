@@ -4,12 +4,15 @@
 
 var PANEL_TABS = ['appearance', 'wallpaper', 'glass', 'pixel', 'style', 'modules', 'pack', 'diag'];
 
-/** 图库选择弹层：从壁纸库的图片里挑一张（比手填 id 友好）。 */
-function GalleryPicker() {
-	var state = react.useState(null);
-	var request = state[0];
-	var setRequest = state[1];
-	A.galleryPicker = setRequest;
+/**
+ * 图库选择弹层：从壁纸库的图片里挑一张（比手填 id 友好）。
+ * 纯受控组件：请求对象与关闭回调都由 AetherPanel 持有。
+ * （旧实现在渲染期直接读 useState 并顺手给 A.galleryPicker 赋值，
+ *   既是渲染期副作用，也会在切页后留下陈旧 setter。）
+ */
+function GalleryPicker(props) {
+	var request = props.request;
+	var onClose = props.onClose;
 	if (!request) return null;
 	var images = (A.host.wallpapers || []).filter(function (w) { return !w.kind || w.kind === 'image'; });
 	return h('div', {
@@ -17,11 +20,11 @@ function GalleryPicker() {
 			position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(10,12,16,.72)',
 			backdropFilter: 'blur(6px)', display: 'flex', flexDirection: 'column', padding: '12px', gap: '10px',
 		},
-		onClick: function () { setRequest(null); },
+		onClick: function () { onClose(); },
 	},
 		h('div', { className: 'aeth-row', style: { justifyContent: 'space-between' } },
 			h('b', null, request.title || '从图库选择'),
-			h('button', { type: 'button', className: 'aeth-btn', onClick: function () { setRequest(null); } }, '关闭'),
+			h('button', { type: 'button', className: 'aeth-btn', onClick: function () { onClose(); } }, '关闭'),
 		),
 		images.length
 			? h('div', {
@@ -30,14 +33,14 @@ function GalleryPicker() {
 				onClick: function (event) { event.stopPropagation(); },
 			},
 				images.map(function (item) {
-					var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(item.id) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
+					var url = mediaUrl(item.id);
 					return h('div', {
 						key: item.id,
 						className: 'aeth-wall',
 						style: { cursor: 'pointer' },
 						onClick: function () {
 							try { request.onPick(item.id); } catch (error) { /* ignore */ }
-							setRequest(null);
+							onClose();
 						},
 					},
 						h('img', { src: url, alt: '' }),
@@ -119,12 +122,23 @@ function AetherPanel() {
 	var statusState = react.useState('');
 	var status = statusState[0];
 	var setStatus = statusState[1];
-	var saveTimer = react.useRef(null);
 	var importRef = react.useRef(null);
 	var uploadRef = react.useRef(null);
 	var uploadCategoryState = react.useState('custom');
 	var uploadCategory = uploadCategoryState[0];
 	var setUploadCategory = uploadCategoryState[1];
+	var galleryState = react.useState(null);
+	var galleryRequest = galleryState[0];
+	var setGalleryRequest = galleryState[1];
+
+	// 把"请求打开图库"的入口发布给其他卡片（它们只是纯渲染函数，拿不到本地 state）。
+	// 必须在 effect 里做：渲染期赋值是副作用，且卸载后会留下陈旧 setter。
+	react.useEffect(function () {
+		A.galleryPicker = setGalleryRequest;
+		return function () {
+			if (A.galleryPicker === setGalleryRequest) A.galleryPicker = null;
+		};
+	}, []);
 
 	var cfg = A.cfg;
 	var hostOk = A.host.ok;
@@ -136,14 +150,17 @@ function AetherPanel() {
 		if (!options || options.wallpaper !== false) {
 			try { applyWallpaper('panel'); } catch (error) { /* 无壁纸模块时忽略 */ }
 		}
-		if (saveTimer.current) clearTimeout(saveTimer.current);
-		saveTimer.current = setTimeout(function () {
-			saveConfig('panel').then(function () {
-				setStatus(t('state.saved'));
-				setTimeout(function () { setStatus(''); }, 1200);
-			}).catch(function () { setStatus(t('state.error')); });
-		}, 600);
+		// 统一走 600ms 防抖 + 单飞行落盘（见 20-core 的 scheduleSave）
+		scheduleSave('panel');
 	}
+
+	// 保存状态回显（成功/失败）由 SAVE_BUS 统一广播，面板与设置页共用
+	react.useEffect(function () {
+		return onSaveState(function (state) {
+			setStatus(state === 'saved' ? t('state.saved') : t('state.error'));
+			if (state === 'saved') setTimeout(function () { setStatus(''); }, 1200);
+		});
+	}, []);
 
 	function doReset() {
 		if (!window.confirm(t('action.resetConfirm'))) return;
@@ -178,15 +195,23 @@ function AetherPanel() {
 
 	function importPack(file) {
 		if (!file) return;
+		if (!window.confirm(t('pack.confirm'))) return;
 		var reader = new FileReader();
 		reader.onload = function () {
 			try {
 				var parsed = JSON.parse(String(reader.result));
 				var appearance = parsed && parsed.appearance ? parsed.appearance : parsed;
-				A.cfg = mergeConfig(appearance, A.defaults || defaultConfigFallback());
+				var check = sanitizeThemePack(appearance);
+				if (!check.ok) {
+					setStatus(t('pack.rejected'));
+					pushLog('warn', '主题包被拒绝', { reason: check.reason });
+					return;
+				}
+				A.cfg = mergeConfig(check.value, A.defaults || defaultConfigFallback());
 				applyAppearance('import');
 				applyWallpaper('import');
-				saveConfig('import').then(function () { setStatus(t('state.saved')); });
+				scheduleSave('import');
+				setStatus(t('state.saved'));
 			} catch (error) {
 				setStatus(t('state.error'));
 			}
@@ -209,26 +234,27 @@ function AetherPanel() {
 		});
 	}
 
+	function downloadJson(text, filename) {
+		// 统一出口：任何分支都必须 revokeObjectURL + 摘掉 <a>，否则每次都泄漏一个 Blob
+		var blob = new Blob([text], { type: 'application/json' });
+		var url = URL.createObjectURL(blob);
+		var link = document.createElement('a');
+		link.href = url;
+		link.download = filename;
+		document.body.appendChild(link);
+		try { link.click(); } catch (error) { /* ignore */ }
+		setTimeout(function () {
+			try { link.remove(); } catch (error) { /* ignore */ }
+			try { URL.revokeObjectURL(url); } catch (error) { /* ignore */ }
+		}, 400);
+	}
+
 	function exportDiag() {
 		try {
 			apiFetch('/api/diag.json').then(function (text) {
-				var blob = new Blob([typeof text === 'string' ? text : JSON.stringify(text, null, 2)], { type: 'application/json' });
-				var url = URL.createObjectURL(blob);
-				var link = document.createElement('a');
-				link.href = url;
-				link.download = 'diag.json';
-				document.body.appendChild(link);
-				link.click();
-				setTimeout(function () { try { link.remove(); URL.revokeObjectURL(url); } catch (error) { /* ignore */ } }, 400);
+				downloadJson(typeof text === 'string' ? text : JSON.stringify(text, null, 2), 'diag.json');
 			}).catch(function () {
-				var payload = reportDiag('manual-export');
-				var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-				var url = URL.createObjectURL(blob);
-				var link = document.createElement('a');
-				link.href = url;
-				link.download = 'diag.json';
-				document.body.appendChild(link);
-				link.click();
+				downloadJson(JSON.stringify(reportDiag('manual-export'), null, 2), 'diag.json');
 			});
 		} catch (error) { /* ignore */ }
 	}
@@ -273,7 +299,7 @@ function AetherPanel() {
 		tab === 'glass' ? GlassTab(cfg, mutate) : null,
 		tab === 'pixel' ? PixelTab(cfg, mutate) : null,
 		tab === 'style' ? StyleTab(cfg, mutate) : null,
-		GalleryPicker(),
+		h(GalleryPicker, { request: galleryRequest, onClose: function () { setGalleryRequest(null); } }),
 		tab === 'modules' ? ModulesTab(cfg, mutate) : null,
 		tab === 'pack'
 			? h('div', { className: 'aeth-card' },
@@ -353,6 +379,78 @@ var FONT_CHOICES = [
 	{ value: 'KaiTi', label: '楷体' },
 ];
 
+	/** 开机动画片库卡片。hook 必须落在组件体内 —— 旧实现写成 IIFE 在 AdvancedCards 渲染期调用，
+	 *  等于把 hook 塞进 AetherPanel 的 hook 链；切标签页时 hook 数量变化会直接抛
+	 *  "Rendered fewer hooks than expected"。 */
+function BootLibraryCard() {
+	var boot = react.useState(null);
+	var bootData = boot[0];
+	var setBootData = boot[1];
+	var preview = react.useState('');
+	var previewId = preview[0];
+	var setPreviewId = preview[1];
+	react.useEffect(function () {
+		var alive = true;
+		fetch('/dsh-boot-splash-pro/videos.json', { credentials: 'same-origin' })
+			.then(function (res) { return res.json(); })
+			.then(function (json) { if (alive) setBootData(json); })
+			.catch(function () { if (alive) setBootData({ error: true }); });
+		return function () { alive = false; };
+	}, []);
+	return h('div', { className: 'aeth-card' },
+		h('h3', null, '开机动画（dsh-boot-splash-pro）'),
+		h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
+			'触发方式：仅在 DSH 启动时播放一次；打开 / 切换对话不再播放片头。片源与贴合方式由 dsh-boot-splash-pro 管理。'),
+		BootLibraryView(bootData, previewId, setPreviewId),
+	);
+}
+
+/** 纯渲染辅助（无 hook）：由 BootLibraryCard 以普通函数调用，与 row()/sliderRow() 同类。 */
+function BootLibraryView(bootData, previewId, setPreviewId) {
+	if (!bootData) {
+		return h('div', { className: 'aeth-note' }, '正在读取片库…');
+	}
+	if (bootData.error) {
+		return h('div', { className: 'aeth-note' }, '未检测到 dsh-boot-splash-pro（或片库接口不可用）。安装后重启 DSH 即可。');
+	}
+	var videos = Array.isArray(bootData.videos) ? bootData.videos : [];
+	var activeName = '';
+	for (var i = 0; i < videos.length; i += 1) {
+		if (videos[i].id === bootData.activeId) activeName = videos[i].name;
+	}
+	return h('div', null,
+		h('div', { className: 'aeth-row' },
+			h('span', { className: 'aeth-note' }, '当前片头：' + (activeName || bootData.activeId || '未选')),
+			h('span', { className: 'aeth-note' }, '共 ' + videos.length + ' 段'),
+		),
+		videos.length
+			? h('div', { className: 'aeth-grid', style: { marginTop: '10px' } },
+				videos.map(function (item) {
+					var url = '/dsh-boot-splash-pro/media/' + encodeURIComponent(item.id);
+					var isPlaying = previewId === item.id;
+					return h('div', {
+						key: item.id,
+						className: 'aeth-wall' + (bootData.activeId === item.id ? ' on' : ''),
+						style: { cursor: 'pointer' },
+						onClick: function () { setPreviewId(isPlaying ? '' : item.id); },
+					},
+						h('video', {
+							src: url,
+							muted: true,
+							loop: true,
+							playsInline: true,
+							preload: 'metadata',
+							controls: isPlaying,
+							autoPlay: isPlaying,
+						}),
+						h('span', { className: 'aeth-badge' }, (item.name || item.id) + (isPlaying ? ' · 播放中' : ' · 点击预览')),
+					);
+				})
+			)
+			: h('div', { className: 'aeth-note' }, '片库为空：在 dsh-boot-splash-pro 的设置里上传/选择片头。'),
+	);
+}
+
 function AdvancedCards(cfg, mutate) {
 	var theme = cfg.theme;
 	var bubble = cfg.bubble || { official: true, color: '#dbe7ff', opacity: 0.62 };
@@ -390,7 +488,7 @@ function AdvancedCards(cfg, mutate) {
 			h('h3', null, '分区背景（每块可单独配置）'),
 			h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
 				'开启后该区域使用自己的颜色与不透明度；关闭则跟随「外壳暗度」统一值。'),
-			A.bgUploadState ? h('div', { className: 'aeth-note', style: { color: '#9cc0f2', marginBottom: '8px' } }, A.bgUploadState) : null,
+			A.toast ? h('div', { className: 'aeth-note', style: { color: '#9cc0f2', marginBottom: '8px' } }, A.toast) : null,
 			[
 				['sidebar', '侧边栏'],
 				['input', '对话页输入框'],
@@ -490,7 +588,7 @@ function AdvancedCards(cfg, mutate) {
 								var file = event.target.files && event.target.files[0];
 								try { event.target.value = ''; } catch (error) { /* ignore */ }
 								if (!file) return;
-								A.bgUploadState = '正在上传 ' + String(file.name || '').slice(0, 20) + '…';
+								toast('正在上传 ' + String(file.name || '').slice(0, 20) + '…');
 								notify();
 								pushLog('info', '分区背景图上传开始', { key: key, name: String(file.name || '').slice(0, 60), size: file.size });
 								uploadWallpaper(file, 'region').then(function (uploaded) {
@@ -499,17 +597,13 @@ function AdvancedCards(cfg, mutate) {
 											draft.backgrounds = draft.backgrounds || {};
 											draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { image: uploaded.id, enabled: true });
 										}, { wallpaper: false });
-										A.bgUploadState = '已应用：' + pair[1];
-										notify();
-										setTimeout(function () { A.bgUploadState = ''; notify(); }, 1800);
+										toast('已应用：' + pair[1], 1800);
 									} catch (error) {
-										A.bgUploadState = '保存失败';
-										notify();
+										toast('保存失败', 2600);
 										pushLog('error', '分区背景图保存失败', { key: key, message: String(error && error.message) });
 									}
 								}).catch(function (error) {
-									A.bgUploadState = '上传失败：' + String(error && error.message || '').slice(0, 40);
-									notify();
+									toast('上传失败：' + String(error && error.message || '').slice(0, 40), 3000);
 									pushLog('error', '分区背景图上传失败', { key: key, message: String(error && error.message) });
 								});
 							},
@@ -520,69 +614,7 @@ function AdvancedCards(cfg, mutate) {
 				);
 			}),
 		),
-		h('div', { className: 'aeth-card' },
-			h('h3', null, '开机动画（dsh-boot-splash-pro）'),
-			h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
-				'触发方式：仅在 DSH 启动时播放一次；打开 / 切换对话不再播放片头。片源与贴合方式由 dsh-boot-splash-pro 管理。'),
-			(function () {
-				var boot = react.useState(null);
-				var bootData = boot[0];
-				var setBootData = boot[1];
-				var now = react.useState('');
-				var previewId = now[0];
-				var setPreviewId = now[1];
-				react.useEffect(function () {
-					var alive = true;
-					fetch('/dsh-boot-splash-pro/videos.json', { credentials: 'same-origin' })
-						.then(function (res) { return res.json(); })
-						.then(function (json) { if (alive) setBootData(json); })
-						.catch(function () { if (alive) setBootData({ error: true }); });
-					return function () { alive = false; };
-				}, []);
-				if (!bootData) {
-					return h('div', { className: 'aeth-note' }, '正在读取片库…');
-				}
-				if (bootData.error) {
-					return h('div', { className: 'aeth-note' }, '未检测到 dsh-boot-splash-pro（或片库接口不可用）。安装后重启 DSH 即可。');
-				}
-				var videos = Array.isArray(bootData.videos) ? bootData.videos : [];
-				var activeName = '';
-				for (var i = 0; i < videos.length; i += 1) {
-					if (videos[i].id === bootData.activeId) activeName = videos[i].name;
-				}
-				return h('div', null,
-					h('div', { className: 'aeth-row' },
-						h('span', { className: 'aeth-note' }, '当前片头：' + (activeName || bootData.activeId || '未选')),
-						h('span', { className: 'aeth-note' }, '共 ' + videos.length + ' 段'),
-					),
-					videos.length
-						? h('div', { className: 'aeth-grid', style: { marginTop: '10px' } },
-							videos.map(function (item) {
-								var url = '/dsh-boot-splash-pro/media/' + encodeURIComponent(item.id);
-								var isPlaying = previewId === item.id;
-								return h('div', {
-									key: item.id,
-									className: 'aeth-wall' + (bootData.activeId === item.id ? ' on' : ''),
-									style: { cursor: 'pointer' },
-									onClick: function () { setPreviewId(isPlaying ? '' : item.id); },
-								},
-									h('video', {
-										src: url,
-										muted: true,
-										loop: true,
-										playsInline: true,
-										preload: 'metadata',
-										controls: isPlaying,
-										autoPlay: isPlaying,
-									}),
-									h('span', { className: 'aeth-badge' }, (item.name || item.id) + (isPlaying ? ' · 播放中' : ' · 点击预览')),
-								);
-							})
-						)
-						: h('div', { className: 'aeth-note' }, '片库为空：在 dsh-boot-splash-pro 的设置里上传/选择片头。'),
-				);
-			})(),
-		),
+		h(BootLibraryCard, { key: 'boot' }),
 		h('div', { className: 'aeth-card' },
 			h('h3', null, '消息头像'),
 			h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
@@ -658,7 +690,7 @@ function AdvancedCards(cfg, mutate) {
 							: null,
 						image
 							? h('img', {
-								src: A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(image) + (A.token ? '&token=' + encodeURIComponent(A.token) : ''),
+								src: mediaUrl(image),
 								alt: '',
 								style: { width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover' },
 							})
@@ -774,7 +806,7 @@ function AdvancedCards(cfg, mutate) {
 						'预览：消息气泡左下角 ',
 						deco.image
 							? h('img', {
-								src: A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(deco.image) + (A.token ? '&token=' + encodeURIComponent(A.token) : ''),
+								src: mediaUrl(deco.image),
 								alt: '',
 								style: { width: '22px', height: '22px', objectFit: 'contain', verticalAlign: 'middle', borderRadius: '5px' },
 							})
@@ -912,7 +944,7 @@ function WallpaperTab(cfg, mutate, tick, uploadRef, uploadCategory, setUploadCat
 				? h('div', { className: 'aeth-grid', style: { marginTop: '10px' } },
 					files.map(function (item) {
 						var active = wallpaper.source === 'file' && wallpaper.id === item.id;
-						var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(item.id) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
+						var url = mediaUrl(item.id);
 						return h('div', { key: item.id, className: 'aeth-wall' + (active ? ' on' : '') },
 							item.kind === 'video'
 								? h('video', { src: url, muted: true, loop: true, autoPlay: true, playsInline: true, preload: 'metadata' })
@@ -946,7 +978,7 @@ function WallpaperTab(cfg, mutate, tick, uploadRef, uploadCategory, setUploadCat
 			sliderRow('壁纸亮度（filter，不盖遮罩）', wallpaper.brightness === undefined ? 0.85 : wallpaper.brightness, 0.3, 1.4, 0.05, function (value) {
 				mutate(function (draft) { draft.wallpaper.brightness = value; }, { wallpaper: true });
 			}),
-			sliderRow('压暗遮罩（黑色蒙层，建议留 0）', wallpaper.dim === undefined ? 0 : wallpaper.dim, 0, 1, 0.02, function (value) {
+			sliderRow('压暗遮罩（黑色蒙层）', wallpaper.dim === undefined ? 0.32 : wallpaper.dim, 0, 1, 0.02, function (value) {
 				mutate(function (draft) { draft.wallpaper.dim = value; }, { wallpaper: true });
 			}),
 			h('div', { className: 'aeth-note' }, '亮度直接调壁纸本身（不影响文字）；压暗是额外的一层黑色遮罩，会把文字一起压暗。'),
@@ -1013,7 +1045,10 @@ function GlassTab(cfg, mutate) {
 			sliderRow(t('label.border'), glass.border, 0.02, 0.5, 0.01, function (value) {
 				mutate(function (draft) { draft.glass.border = value; }, { wallpaper: false });
 			}),
-			sliderRow('外壳暗度（顶栏/侧栏/输入框统一）', glass.chromeOpacity === undefined ? 0.55 : glass.chromeOpacity, 0, 1, 0.01, function (value) {
+			// 0 = 跟随明暗自动（深色 .5 / 浅色 .42）。这里显示"实际生效值"，
+			// 旧实现显示的 0.55 是第三份漂移的默认值，与真正生效的数值对不上。
+			sliderRow('外壳暗度（顶栏/侧栏/输入框统一；0 = 自动）',
+				(!glass.chromeOpacity ? (isDarkTheme() ? 0.5 : 0.42) : glass.chromeOpacity), 0, 1, 0.01, function (value) {
 				mutate(function (draft) { draft.glass.chromeOpacity = value; }, { wallpaper: false });
 			}),
 			sliderRow('外壳磨砂（顶栏/侧栏/输入框统一）', glass.chromeBlur === undefined ? 0 : glass.chromeBlur, 0, 24, 1, function (value) {
@@ -1177,7 +1212,6 @@ function ModulesTab(cfg, mutate) {
 		['wallpaper', t('title.wallpaper')],
 		['glass', t('title.glass')],
 		['pixel', t('title.pixel')],
-		['boot', t('label.boot')],
 		['diag', t('section.diag')],
 		['inputGlow', '渐变边框（输入态）'],
 		['fx', '粒子与小鱼'],
@@ -1244,10 +1278,8 @@ function renderDiagTab(exportDiag) {
 					className: 'aeth-btn',
 					onClick: function () {
 						if (typeof METEOR === 'undefined' || !METEOR.running) {
-							A.bgUploadState = '流星未启动（检查开关/减弱动效）';
-							notify();
+							toast('流星未启动（检查开关/减弱动效）', 1800);
 							pushLog('warn', '测试流星：未启动', { running: typeof METEOR !== 'undefined' ? METEOR.running : null });
-							setTimeout(function () { A.bgUploadState = ''; notify(); }, 1800);
 							return;
 						}
 						var cx = Math.round(window.innerWidth / 2);
