@@ -206,7 +206,9 @@ function applyAppearanceNow(reason) {
 	if (!A.cfg) return;
 	if (A.canary.disabled) return;
 	if (A.cfg.enabled === false) {
-		removeStyle();
+		// 保留基础样式（左侧面板 / 设置分区的 .aeth-* UI），否则关掉主题后面板会失去样式，
+		// 用户就找不到重新开启的开关了。视觉层靠移除 data-dsh-aether 属性关掉。
+		ensureStyle();
 		removeStage();
 		try {
 			document.documentElement.removeAttribute('data-dsh-aether');
