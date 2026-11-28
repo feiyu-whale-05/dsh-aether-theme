@@ -66,7 +66,10 @@ function AetherSettingsSection() {
 		A.canary.disabled ? h('div', { className: 'aeth-card aeth-bad' }, t('safe.exited')) : null,
 		h('div', { className: 'aeth-card' },
 			h('h3', null, '快速开关'),
-			toggleRow('启用以太主题', cfg.enabled !== false, function (value) { mutate(function (draft) { draft.enabled = value; }); }),
+			// 「启用以太主题」是总开关：同时写顶层 enabled 与 modules.theme，
+			// 否则两个开关会各说各话（设置页显示"开"、模块页显示"关"，用户不知道听谁的）。
+			toggleRow('启用以太主题', cfg.enabled !== false,
+				function (value) { mutate(function (draft) { setThemeEnabled(draft, value); }); }),
 			chipsRow(t('label.mode'), [
 				{ value: 'none', label: t('mode.none') },
 				{ value: 'css', label: t('mode.css') },
