@@ -204,6 +204,13 @@ var apply = function apply(ctx) {
 	try { startBubbleDeco(); } catch (error) { /* ignore */ }
 	try { startAvatars(); } catch (error) { /* ignore */ }
 
+	// 2.37) 侧栏双态审计（默认关闭；diag.auditSidebar=true 时自动跑一次）
+	try {
+		if (A.cfg && A.cfg.diag && A.cfg.diag.auditSidebar === true) {
+			setTimeout(function () { try { runSidebarAudit(); } catch (error) { /* ignore */ } }, 4000);
+		}
+	} catch (error) { /* ignore */ }
+
 	// 2.38) 失焦/不可见暂停：视频解码、小生物、鲸鱼、流星都跟着停
 	try { watchDecorPause(); } catch (error) { /* ignore */ }
 
