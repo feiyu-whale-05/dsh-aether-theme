@@ -5,25 +5,31 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.89';
+var VERSION = '1.1.0';
 
 var A = {
 	ctx: null,
 	ready: false,
-	host: { ok: false, version: '', wallpapers: [], usage: null, diag: null },
+	host: { ok: false, version: '', wallpapers: [], diag: null },
 	cfg: null,
 	defaults: null,
 	styleEl: null,
 	stageEl: null,
 	layerEls: [],
 	scanEl: null,
-	canary: { strikes: 0, lost: {}, disabled: false, lastRun: 0, timer: null },
+	canary: { strikes: 0, lost: {}, disabled: false, lastRun: 0, armed: false },
 	rotationTimer: null,
 	derived: null,
 	services: {},
+	token: '',
+	mediaToken: '',
 	flags: { reduceMotion: false, dark: true },
 	lastDiag: null,
 	lastUpload: 0,
+	// 面板顶部的一行提示（上传进度 / 失败原因 / 诊断按钮反馈）。
+	// 以前叫 A.bgUploadState —— 名字只对背景上传有意义，后来被诊断页复用成通用提示，
+	// 属于「全局变量当消息总线」，这里正名为 toast 并提供唯一入口 toast()。
+	toast: '',
 	subscribers: [],
 	startedAt: Date.now(),
 	logs: [],
@@ -409,6 +415,28 @@ function ensureToken() {
 		});
 }
 
+/**
+ * 媒体 URL（<img>/<video> 用）：优先带短时效媒体令牌 mt，
+ * 绝不把页面令牌塞进 query —— 那会进入宿主访问日志、Referer、DevTools、浏览器历史。
+ * Host 的 /api/wallpaper 专属放行 mt；页面令牌只在 XHR header 里用。
+ */
+function mediaUrl(id) {
+	if (!id) return '';
+	var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(id);
+	if (A.mediaToken) return url + '&mt=' + encodeURIComponent(A.mediaToken);
+	// 老 Host（还没有 mt）才回落到页面令牌
+	return A.token ? url + '&token=' + encodeURIComponent(A.token) : url;
+}
+
+/** 媒体令牌有时效，长时间挂着的页面靠这条低频刷新续期。 */
+function refreshMediaToken() {
+	if (!A.token || !A.host.ok) return Promise.resolve('');
+	return apiFetch('/api/state').then(function (payload) {
+		if (payload && payload.mediaToken) A.mediaToken = String(payload.mediaToken);
+		return A.mediaToken;
+	}).catch(function () { return A.mediaToken; });
+}
+
 function loadState(retried) {
 	return ensureToken().then(function () {
 		return apiFetch('/api/state');
@@ -424,8 +452,8 @@ function loadState(retried) {
 		A.host.ok = true;
 		A.host.version = payload.version || VERSION;
 		A.host.wallpapers = Array.isArray(payload.wallpapers) ? payload.wallpapers : [];
-		A.host.usage = payload.usage || null;
 		A.host.diag = payload.diag || null;
+		if (payload.mediaToken) A.mediaToken = String(payload.mediaToken);
 		A.host.remoteWallpaperMode = payload.appearance && payload.appearance.wallpaper ? payload.appearance.wallpaper.mode : null;
 		A.defaults = payload.defaultAppearance || null;
 		var previousWall = A.cfg && A.cfg.wallpaper ? A.cfg.wallpaper : null;
@@ -488,10 +516,177 @@ function migrateBlurOff(cfg) {
 				if (cfg.glass.chromeOpacity === 0.55) cfg.glass.chromeOpacity = 0;
 			}
 		}
-		if (dirty) saveConfig('migrate');
+		if (dirty) saveConfig('migrate').catch(function () { /* 迁移失败不致命 */ });
 	} catch (error) { /* ignore */ }
 	return cfg;
 }
+// ── 主题包导入校验 ───────────────────────────────────────────────────────
+// 主题包是「别人给的文件」。只做 JSON.parse 后直接 merge 等于把任意字段塞进配置：
+//  - regionCss.* 是任意 CSS：可 @import 外链回传、可用伪元素遮罩伪造 UI 做钓鱼、
+//    可隐藏「恢复默认」按钮；
+//  - 字段类型不校验：例如 regions 传字符串会让颜色算法递归/抛错。
+// 所以这里做白名单 + 类型 + 长度 + 危险语法四道闸。返回 { ok, value } 或 { ok:false, reason }。
+var PACK_TOP_KEYS = ['version', 'enabled', 'modules', 'theme', 'bubble', 'bubbleDecoration', 'avatars',
+	'regionCss', 'panel', 'meteor', 'userMd', 'wallpaper', 'glass', 'backgrounds', 'pixel', 'widget', 'fx', 'boot', 'diag'];
+var PACK_CSS_MAX = 20000;
+var PACK_CSS_BANNED = [
+	{ re: /@import/i, why: '@import（外链回源）' },
+	{ re: /expression\s*\(/i, why: 'expression()（脚本执行）' },
+	{ re: /javascript\s*:/i, why: 'javascript: 协议' },
+	{ re: /behavior\s*:/i, why: 'behavior（脚本执行）' },
+	{ re: /-moz-binding/i, why: '-moz-binding' },
+	{ re: /<\s*script/i, why: '内联 <script>' },
+	{ re: /url\s*\(\s*['"]?\s*(?:https?:|\/\/)/i, why: '外链 url()（数据回传）' },
+	{ re: /position\s*:\s*fixed[^}]*z-index\s*:\s*[1-9]\d{3,}/i, why: '超高层 fixed 遮罩（伪造 UI）' },
+];
+var PACK_IMAGE_ID = /^[0-9a-f]{8,64}$/i;
+
+function packReject(reason) {
+	return { ok: false, reason: reason };
+}
+
+function packClampNumber(value, min, max, fallback) {
+	var n = Number(value);
+	if (!Number.isFinite(n)) return fallback;
+	return Math.min(max, Math.max(min, n));
+}
+
+function packColor(value, fallback) {
+	return /^#[0-9a-f]{3,8}$/i.test(String(value || '')) ? String(value) : fallback;
+}
+
+/** 逐条清洗 regionCss 的 7 段自定义 CSS。 */
+function packSanitizeCss(text) {
+	if (text === undefined || text === null) return '';
+	var css = String(text);
+	if (!css.trim()) return '';
+	if (css.length > PACK_CSS_MAX) return { error: 'CSS 过长（>20KB）' };
+	for (var i = 0; i < PACK_CSS_BANNED.length; i += 1) {
+		if (PACK_CSS_BANNED[i].re.test(css)) return { error: PACK_CSS_BANNED[i].why };
+	}
+	return css;
+}
+
+/**
+ * @param {unknown} raw 主题包里的 appearance 字段
+ * @returns {{ok:boolean, value?:object, reason?:string}}
+ */
+function sanitizeThemePack(raw) {
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return packReject('不是对象');
+	var out = {};
+	var keys = Object.keys(raw);
+	for (var k = 0; k < keys.length; k += 1) {
+		if (PACK_TOP_KEYS.indexOf(keys[k]) === -1) continue; // 白名单外的字段直接丢弃
+		out[keys[k]] = raw[keys[k]];
+	}
+
+	// 自定义 CSS：逐段清洗，任何一段命中危险语法就整体拒绝（宁可报错也不半应用）
+	if (out.regionCss !== undefined) {
+		if (!out.regionCss || typeof out.regionCss !== 'object') return packReject('regionCss 类型错误');
+		var cssKeys = ['global', 'sidebar', 'input', 'bubble', 'topbar', 'titlebar', 'settings'];
+		var cleanCss = { enabled: out.regionCss.enabled !== false };
+		for (var c = 0; c < cssKeys.length; c += 1) {
+			var one = packSanitizeCss(out.regionCss[cssKeys[c]]);
+			if (one && typeof one === 'object' && one.error) return packReject('CSS 含 ' + one.error);
+			cleanCss[cssKeys[c]] = one;
+		}
+		out.regionCss = cleanCss;
+	}
+
+	// 分区背景图只能引用本机壁纸库里的 id，不能是任意 URL
+	if (out.backgrounds !== undefined) {
+		if (!out.backgrounds || typeof out.backgrounds !== 'object') return packReject('backgrounds 类型错误');
+		var bgKeys = ['sidebar', 'input', 'bubble', 'topbar', 'titlebar', 'settings'];
+		var cleanBg = {};
+		for (var b = 0; b < bgKeys.length; b += 1) {
+			var item = out.backgrounds[bgKeys[b]];
+			if (!item || typeof item !== 'object') continue;
+			cleanBg[bgKeys[b]] = {
+				enabled: item.enabled === true,
+				color: packColor(item.color, '#22262f'),
+				opacity: packClampNumber(item.opacity, 0, 1, 0),
+				image: PACK_IMAGE_ID.test(String(item.image || '')) ? String(item.image) : '',
+			};
+		}
+		out.backgrounds = cleanBg;
+	}
+
+	// 头像图片同理
+	if (out.avatars !== undefined && out.avatars && typeof out.avatars === 'object') {
+		out.avatars = {
+			enabled: out.avatars.enabled === true,
+			user: String(out.avatars.user || '我').slice(0, 2),
+			agent: String(out.avatars.agent || 'AI').slice(0, 2),
+			userImage: PACK_IMAGE_ID.test(String(out.avatars.userImage || '')) ? String(out.avatars.userImage) : '',
+			agentImage: PACK_IMAGE_ID.test(String(out.avatars.agentImage || '')) ? String(out.avatars.agentImage) : '',
+		};
+	}
+	if (out.bubbleDecoration !== undefined && out.bubbleDecoration && typeof out.bubbleDecoration === 'object') {
+		out.bubbleDecoration = {
+			enabled: out.bubbleDecoration.enabled === true,
+			text: String(out.bubbleDecoration.text || '').slice(0, 4),
+			image: PACK_IMAGE_ID.test(String(out.bubbleDecoration.image || '')) ? String(out.bubbleDecoration.image) : '',
+			x: packClampNumber(out.bubbleDecoration.x, -40, 120, 0),
+			y: packClampNumber(out.bubbleDecoration.y, -40, 60, -2),
+		};
+	}
+
+	// 数值类字段统一夹紧，避免 NaN/Infinity 进颜色算法导致递归
+	if (out.theme && typeof out.theme === 'object') {
+		out.theme = Object.assign({}, out.theme, {
+			accent: packColor(out.theme.accent, '#7aa2ff'),
+			secondary: packColor(out.theme.secondary, '#9d7cff'),
+			contrastTarget: packClampNumber(out.theme.contrastTarget, 3, 21, 7),
+			transitionMs: packClampNumber(out.theme.transitionMs, 0, 2000, 420),
+			fontSize: packClampNumber(out.theme.fontSize, 0, 24, 0),
+			fontFamily: String(out.theme.fontFamily || '').slice(0, 80),
+			mixMode: ['normal', 'multiply', 'screen', 'overlay', 'soft-light', 'hard-light', 'color-burn'].indexOf(out.theme.mixMode) === -1 ? 'normal' : out.theme.mixMode,
+		});
+	}
+	if (out.glass && typeof out.glass === 'object') {
+		var glass = Object.assign({}, out.glass);
+		['glassBlur', 'backgroundBlur'].forEach(function (key) { if (glass[key] !== undefined) glass[key] = packClampNumber(glass[key], 0, 64, 0); });
+		if (glass.saturation !== undefined) glass.saturation = packClampNumber(glass.saturation, 0.2, 2.5, 1.15);
+		if (glass.border !== undefined) glass.border = packClampNumber(glass.border, 0.02, 0.6, 0.14);
+		if (glass.chromeOpacity !== undefined) glass.chromeOpacity = packClampNumber(glass.chromeOpacity, 0, 1, 0);
+		if (glass.chromeBlur !== undefined) glass.chromeBlur = packClampNumber(glass.chromeBlur, 0, 40, 14);
+		if (glass.regions && typeof glass.regions === 'object') {
+			var regionsOut = {};
+			['base', 'sidebar', 'layers', 'menu', 'input', 'bubble'].forEach(function (key) {
+				regionsOut[key] = packClampNumber(glass.regions[key], 0, 1, 0.5);
+			});
+			glass.regions = regionsOut;
+		}
+		if (glass.inputFills !== undefined) {
+			var seenFill = {};
+			glass.inputFills = (Array.isArray(glass.inputFills) ? glass.inputFills : [glass.inputFills])
+				.filter(function (fill) {
+					if (['frosted', 'solid', 'tint', 'none'].indexOf(fill) === -1 || seenFill[fill]) return false;
+					seenFill[fill] = true;
+					return true;
+				});
+			if (!glass.inputFills.length) glass.inputFills = ['frosted'];
+		}
+		delete glass.backgrounds; // 旧位置，一律以顶层 backgrounds 为准
+		out.glass = glass;
+	}
+	if (out.wallpaper && typeof out.wallpaper === 'object') {
+		var wall = Object.assign({}, out.wallpaper);
+		wall.dim = packClampNumber(wall.dim, 0, 1, 0.32);
+		wall.blur = packClampNumber(wall.blur, 0, 40, 0);
+		if (wall.mode !== undefined && ['none', 'image', 'video', 'css', 'rotate'].indexOf(wall.mode) === -1) wall.mode = 'none';
+		out.wallpaper = wall;
+	}
+	if (out.pixel && typeof out.pixel === 'object') {
+		out.pixel = Object.assign({}, out.pixel, {
+			nineSlice: packClampNumber(out.pixel.nineSlice, 0, 48, 12),
+			scanline: packClampNumber(out.pixel.scanline, 0, 0.4, 0.08),
+			crt: out.pixel.crt === true,
+		});
+	}
+	return { ok: true, value: out };
+}
+
 function mergeConfig(saved, defaults) {
 	// 始终以「客户端自带默认值」为基线：host 的 defaultAppearance 可能是旧版本
 	// （没有后来新增的字段，例如 backgrounds），只把它当作覆盖层。
@@ -519,9 +714,14 @@ function mergeConfig(saved, defaults) {
 		if (typeof out.glass.inputFills === 'string') out.glass.inputFills = [out.glass.inputFills];
 		if (!Array.isArray(out.glass.inputFills) || !out.glass.inputFills.length) out.glass.inputFills = ['frosted'];
 	}
-	// 分区背景兜底：旧配置可能只有部分键
+	// 分区背景：唯一位置是顶层 cfg.backgrounds。
+	// 旧版本把它写在 glass.backgrounds 下，这里做一次就地迁移（保存即定型）。
+	if (out.glass && out.glass.backgrounds && typeof out.glass.backgrounds === 'object') {
+		out.backgrounds = Object.assign({}, out.glass.backgrounds, out.backgrounds || {});
+		delete out.glass.backgrounds;
+	}
 	if (!out.backgrounds || typeof out.backgrounds !== 'object') {
-		out.backgrounds = (defaultConfigFallback().backgrounds);
+		out.backgrounds = JSON.parse(JSON.stringify(defaultConfigFallback().backgrounds));
 	}
 	return out;
 }
@@ -529,10 +729,11 @@ function defaultConfigFallback() {
 	return {
 		version: 1,
 		enabled: true,
+		// 注意：boot（开屏）与 widget（余额挂件）已拆成独立插件
+		// （dsh-boot-splash-pro / dsh-cost-meter），这里不再保留它们的开关。
 		modules: {
 			theme: { enabled: true }, wallpaper: { enabled: true }, glass: { enabled: true },
-			pixel: { enabled: false }, widget: { enabled: true },
-			boot: { enabled: true }, diag: { enabled: true },
+			pixel: { enabled: false }, diag: { enabled: true },
 			inputGlow: { enabled: true }, fx: { enabled: true },
 		},
 		theme: {
@@ -557,8 +758,12 @@ function defaultConfigFallback() {
 			glassBlur: 0, backgroundBlur: 0, saturation: 1.15, border: 0.14,
 			regions: { base: 0, sidebar: 0.55, layers: 0.55, menu: 0.74, input: 0.55, bubble: 0.5 },
 			inputFills: ['frosted'], inputFillOpacity: 0.55,
+			// chromeOpacity = 0 表示「跟随明暗自动」（深色 0.5 / 浅色 0.42，与 Aqua 同值）
 			chromeOpacity: 0, chromeBlur: 14,
-		// 分区背景：每个区域可单独设颜色与不透明度；enabled=false 时跟随外壳统一色
+		},
+		// 分区背景：每个区域可单独设颜色与不透明度；enabled=false 时跟随外壳统一色（chrome-fill）。
+		// 位置只能在顶层 —— 旧配置把它放在 glass 下，与客户端/面板读的 cfg.backgrounds 不是同一处，
+		// 靠"恰好被 mergeConfig 兜底"活着；现在由 mergeConfig 统一迁移到顶层。
 		backgrounds: {
 			sidebar: { enabled: false, image: '', color: '#22262f', opacity: 0 },
 			input: { enabled: false, image: '', color: '#22262f', opacity: 0 },
@@ -567,11 +772,8 @@ function defaultConfigFallback() {
 			titlebar: { enabled: false, image: '', color: '#1b1f27', opacity: 0.6 },
 			settings: { enabled: false, image: '', color: '#22262f', opacity: 0.6 },
 		},
-		},
 		pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
-		widget: { position: 'bottom-right', showBalance: true, showToday: true, showTurn: true, warnBelow: 5 },
 		fx: { density: 60, fishCount: 3, whale: true, glow: true, press: true },
-		boot: { durationMs: 2200, style: 'ripple', skipOnReducedMotion: true },
 		diag: { showOverlay: false, canaryStrikes: 40 },
 	};
 }
@@ -596,6 +798,47 @@ function saveConfig(reason) {
 		pushLog('warn', '配置保存失败（已写 localStorage 兜底）', { message: String(error && error.message) });
 		throw error;
 	});
+}
+
+/**
+ * 统一落盘入口：600ms 防抖 + 一次飞行中只发最后一个。
+ * 面板与设置页都必须走它 —— 旧设置页每次改动直接 saveConfig()，
+ * 拖一次滑杆 = 30 次全量备份 + 30 次目录扫描（SSD 抖动）。
+ */
+var SAVE_BUS = { timer: null, inflight: null, pending: false, reason: 'save', listeners: [] };
+
+function onSaveState(fn) {
+	if (typeof fn === 'function' && SAVE_BUS.listeners.indexOf(fn) === -1) SAVE_BUS.listeners.push(fn);
+	return function () {
+		var index = SAVE_BUS.listeners.indexOf(fn);
+		if (index !== -1) SAVE_BUS.listeners.splice(index, 1);
+	};
+}
+
+function emitSaveState(state, detail) {
+	for (var i = 0; i < SAVE_BUS.listeners.length; i += 1) {
+		try { SAVE_BUS.listeners[i](state, detail); } catch (error) { /* ignore */ }
+	}
+}
+
+function scheduleSave(reason) {
+	if (SAVE_BUS.timer) clearTimeout(SAVE_BUS.timer);
+	SAVE_BUS.timer = setTimeout(flushSave, 600);
+	SAVE_BUS.reason = reason || 'save';
+}
+
+function flushSave() {
+	SAVE_BUS.timer = null;
+	if (SAVE_BUS.inflight) { SAVE_BUS.pending = true; return; }
+	SAVE_BUS.inflight = saveConfig(SAVE_BUS.reason).then(function () {
+		emitSaveState('saved');
+	}).catch(function () {
+		emitSaveState('error');
+	}).then(function () {
+		SAVE_BUS.inflight = null;
+		if (SAVE_BUS.pending) { SAVE_BUS.pending = false; flushSave(); }
+	});
+	return SAVE_BUS.inflight;
 }
 
 function resetConfig() {
@@ -738,6 +981,10 @@ var IDLE_TICK = { timer: null, entries: [] };
 
 function idleEvery(seconds, fn) {
 	try {
+		// 去重：同一函数重复注册会让热重载后 entries 越堆越多（内存泄漏 + 空转）
+		for (var d = 0; d < IDLE_TICK.entries.length; d += 1) {
+			if (IDLE_TICK.entries[d].fn === fn) { IDLE_TICK.entries[d].every = Math.max(1, seconds); return; }
+		}
 		IDLE_TICK.entries.push({ every: Math.max(1, seconds), last: 0, fn: fn });
 		if (IDLE_TICK.timer) return;
 		IDLE_TICK.timer = setInterval(function () {
@@ -756,6 +1003,34 @@ function idleStop() {
 	try { if (IDLE_TICK.timer) clearInterval(IDLE_TICK.timer); } catch (error) { /* ignore */ }
 	IDLE_TICK.timer = null;
 	IDLE_TICK.entries = [];
+}
+
+/**
+ * 扫描总线：气泡挂件 / 头像这两类"全文档 querySelectorAll"只在
+ * ① 配置变更 ② DOM 变更（watchDom 已 250ms 合并）时跑，且自身再合并 250ms。
+ * 绝不放进 applyAppearanceNow —— 那是滑杆每帧都会走的路径。
+ */
+var SCAN_BUS = { timer: null, running: false };
+
+function scheduleScans() {
+	try {
+		if (SCAN_BUS.timer) return;
+		SCAN_BUS.timer = setTimeout(function () {
+			SCAN_BUS.timer = null;
+			if (!A.ready) return;
+			if (SCAN_BUS.running) return;
+			SCAN_BUS.running = true;
+			try { scanBubbleDeco(); } catch (error) { /* ignore */ }
+			try { scanAvatars(); } catch (error) { /* ignore */ }
+			SCAN_BUS.running = false;
+		}, 250);
+	} catch (error) { /* ignore */ }
+}
+
+function scanStop() {
+	try { if (SCAN_BUS.timer) clearTimeout(SCAN_BUS.timer); } catch (error) { /* ignore */ }
+	SCAN_BUS.timer = null;
+	SCAN_BUS.running = false;
 }
 
 function ensureStage() {
@@ -804,12 +1079,11 @@ function buildStyleText() {
 		'  --dsw-alias-bg-overlay: var(--aether-bg-overlay) !important;',
 		'  --dsw-alias-bg-module-platform: var(--aether-bg-module) !important;',
 		'  --dsw-alias-bg-multi-select: var(--aether-bg-module) !important;',
-		'  --dsw-alias-bg-overlay: var(--aether-bg-overlay) !important;',
-
+		'',
 		'  --dsw-specific-menu: var(--aether-menu-fill) !important;',
 		'  --dsw-specific-input-major: var(--aether-input-fill) !important;',
 		'  --dsw-specific-selector: var(--aether-input-fill) !important;',
-
+		'',
 		'  --dsw-alias-markdown-code-block: var(--aether-code-bg) !important;',
 		'  --dsw-alias-markdown-code-block-banner: var(--aether-code-banner) !important;',
 		'  --dsw-alias-markdown-inline-code: var(--aether-inline-code) !important;',
@@ -818,16 +1092,6 @@ function buildStyleText() {
 		'  --dsw-alias-label-tertiary: var(--aether-label-tertiary, #aeb3bc) !important;',
 		'  --dsw-alias-label-caption: var(--aether-label-caption, #9aa0aa) !important;',
 		'  --dsw-alias-label-dimmed: var(--aether-label-dimmed, #7d838d) !important;',
-		// 设置页 / 图片放大查看的灰色来自宿主遮罩与浮层底色，统一透明（透出壁纸）
-		'html[data-dsh-aether] body {',
-		'  --dsw-alias-bg-mask-1: rgba(0, 0, 0, 0) !important;',
-		'  --dsw-alias-bg-mask-2: rgba(0, 0, 0, 0) !important;',
-		'  --dsw-alias-bg-mask-3: rgba(0, 0, 0, 0) !important;',
-		'  --dsw-alias-bg-mask-photo: rgba(0, 0, 0, 0) !important;',
-		'  --dsw-alias-bg-mask-drop: rgba(255, 255, 255, 0) !important;',
-		'  --dsw-alias-bg-overlay: rgba(20, 22, 27, 0) !important;',
-		'  --dsw-alias-bg-module-platform: rgba(20, 22, 27, 0) !important;',
-		'}',
 		'  --dsw-alias-border-l1: var(--aether-border-l1) !important;',
 		'  --dsw-alias-border-l2: var(--aether-border-l2) !important;',
 		'  --dsw-alias-border-l3: var(--aether-border-l3) !important;',
@@ -841,9 +1105,19 @@ function buildStyleText() {
 		'  --dsw-alias-state-business-primary: var(--aether-brand-blue) !important;',
 		'  --dsw-alias-state-business-secondary: var(--aether-brand-blue) !important;',
 		'}',
-		// 用户气泡：默认官方样式；只有 data-aether-bubble="custom" 时才接管
+		// 设置页 / 图片放大查看的灰底来自宿主遮罩变量，统一透明（透出壁纸）。
+		// 这些必须在同一条规则内声明：另起一条 body{} 会被 CSS Nesting 当成后代规则而永不匹配。
+		'html[data-dsh-aether] body {',
+		'  --dsw-alias-bg-mask-1: rgba(0, 0, 0, 0) !important;',
+		'  --dsw-alias-bg-mask-2: rgba(0, 0, 0, 0) !important;',
+		'  --dsw-alias-bg-mask-3: rgba(0, 0, 0, 0) !important;',
+		'  --dsw-alias-bg-mask-photo: rgba(0, 0, 0, 0) !important;',
+		'  --dsw-alias-bg-mask-drop: rgba(255, 255, 255, 0) !important;',
+		'}',
+		// 用户气泡：默认官方样式；只有 data-aether-bubble="custom" 时才接管。
+		// --aether-bubble-bg（分区"气泡"背景）优先，其次 --aether-bubble-fill（气泡模块自定色）。
 		'html[data-dsh-aether][data-aether-bubble="custom"] body {',
-		'  --dsw-specific-bubble: var(--aether-bubble-fill) !important;',
+		'  --dsw-specific-bubble: var(--aether-bubble-bg, var(--aether-bubble-fill)) !important;',
 		'  --dsw-specific-bubble-highlight: var(--aether-bubble-highlight) !important;',
 		'}',
 		// 浅色分支兜底：变量缺失时也不出现「白底白字」
@@ -858,58 +1132,54 @@ function buildStyleText() {
 		'html[data-dsh-aether][data-glass-blur="on"] [role="menu"] {',
 		'  backdrop-filter: blur(var(--aether-glass-blur, 0px)) saturate(var(--aether-saturation, 1.15));',
 		'}',
-		// 外壳统一：顶栏 / 侧栏 / 输入框卡片共用同一套「暗度 + 磨砂」
-		// 默认磨砂 0（纯半透明），调高时三处一起变磨砂。
-		// 只有显式打开磨砂（chromeBlur > 0）时才加 backdrop-filter；
-		// 否则悬空属性会创建 containing block，破坏侧栏里 fixed 按钮的定位。
-		// 三处外壳统一磨砂：侧栏列 / 顶栏 header / 输入框卡片，同一 blur 值（Aqua 默认 14px）
-		// 注意：不要给 [class*="sidebarCol"] 加 backdrop-filter。它和 transform 一样会创建
-		// 包含块，把侧栏里 position:fixed 的「收起/展开」按钮从视口坐标改到侧栏坐标，
-		// 按钮就跑到侧栏里去了（应始终待在「应用/编辑」顶栏）。
+		// 三处外壳统一磨砂：顶栏 frame / 输入框卡片，同一 blur 值（Aqua 默认 14px）。
+		// 只在显式打开磨砂（chromeBlur > 0）时才写 backdrop-filter。
+		// 严禁给 [class*="sidebarCol"] 加 backdrop-filter / transform / filter：
+		// 三者都会创建包含块，把侧栏里 position:fixed 的「收起/展开」按钮从视口坐标
+		// 改挂到侧栏坐标，按钮就"掉进"侧栏里了（它应当待在「应用/编辑」那条顶栏）。
 		'html[data-dsh-aether][data-chrome-blur="on"] [data-aether-frame],',
 		'html[data-dsh-aether][data-chrome-blur="on"] [data-aether-input-host] {',
 		'  backdrop-filter: blur(var(--aether-chrome-blur, 14px)) saturate(1.4) !important;',
 		'}',
-		// 侧栏里出现 dialog 时撤掉磨砂（避免给 fixed 元素建包含块，Aqua 同款处理）
-		// ── 分区背景（每块可单独覆盖；未启用时回落到外壳统一色/透明） ──
+		// ── 分区背景（每块可单独覆盖；未启用时回落到外壳统一色 chrome-fill） ──
+		// 每个分区只允许【一条】声明。同特异性后写的会无条件吞掉前面的自定义变量，
+		// 这正是"分区背景能调但无效"的根因，别再往下追加同名规则。
 		'html[data-dsh-aether] body {',
 		'  --dsw-specific-sidebar-fill: var(--aether-sidebar-bg, var(--aether-chrome-fill)) !important;',
 		'  --dsw-specific-sidebar-glass-fill: var(--aether-sidebar-bg, var(--aether-chrome-fill)) !important;',
 		'}',
+		// 侧栏背景图：铺在底色之上
+		'html[data-dsh-aether] [class*="sidebarCol"] {',
+		'  background-image: var(--aether-sidebar-img, none) !important;',
+		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
+		'}',
+		// 「应用/编辑」顶栏 ::before：底色 + 额外暗化 + 背景图，一条规则写全（别再另起同名规则）
 		'html[data-windows-titlebar][data-dsh-aether] [data-aether-frame]::before {',
 		'  background-color: var(--aether-topbar-bg, var(--aether-titlebar-bg, var(--aether-chrome-fill))) !important;',
 		'  background-image: linear-gradient(rgba(0, 0, 0, var(--aether-titlebar-extra, .08)), rgba(0, 0, 0, var(--aether-titlebar-extra, .08))), var(--aether-topbar-img, var(--aether-titlebar-img, none)) !important;',
 		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
-		// 会话头/标签行不再应用顶栏背景（顶栏背景只上「应用/编辑」条）
-		'html[data-dsh-aether] [data-aether-input-host] { background-color: var(--aether-input-bg, var(--aether-chrome-fill)) !important; }',
-		'html[data-dsh-aether] [data-global-panel] { background-color: var(--aether-settings-bg, transparent) !important; }',
-		'html[data-dsh-aether] body { --dsw-specific-bubble: var(--aether-bubble-bg, var(--dsw-specific-bubble-default, #dbe7ff8a)) !important; }',
-		// 分区背景图（在底色之上平铺/裁切）
-		'html[data-dsh-aether] [class*="sidebarCol"] {',
-		'  background-image: var(--aether-sidebar-img, none) !important;',
-		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
-		'}',
-				// 遮罩层透明（只改样式；删除宿主 React 节点会让图片查看/切换会话卡死）
-		'html[data-dsh-aether] [data-aether-mask-clear="1"] { background-color: transparent !important; background-image: none !important; }',
-'html[data-dsh-aether] [data-aether-input-host] {',
+		// 输入框卡片：底色 + 背景图（一条规则）
+		'html[data-dsh-aether] [data-aether-input-host] {',
+		'  background-color: var(--aether-input-bg, var(--aether-chrome-fill)) !important;',
 		'  background-image: var(--aether-input-img, none) !important;',
 		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
-		'html[data-dsh-aether] [data-conversation-tabs], html[data-dsh-aether] [data-aether-topbar] { background-image: none !important; }',
-		'html[data-dsh-aether][data-windows-titlebar] [data-aether-frame]::before {',
-		'  background-image: var(--aether-titlebar-img, none) !important;',
-		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
-		'}',
+		// 设置面板：底色 + 背景图（一条规则）
 		'html[data-dsh-aether] [data-global-panel] {',
+		'  background-color: var(--aether-settings-bg, transparent) !important;',
 		'  background-image: var(--aether-settings-img, none) !important;',
 		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
+		// 用户气泡底色：只在 data-aether-bubble="custom"（官方样式被显式关掉）时接管，
+		// 否则必须让宿主主题自己决定，否则深色主题会被钉成浅蓝底 + 浅字（对比度约 1.3:1）。
 		'html[data-dsh-aether] body {',
 		'  --dsw-specific-bubble-image: var(--aether-bubble-img, none);',
 		'}',
-		// 输入框卡片底色统一到外壳变量（侧栏与顶栏由宿主的 frame/sidebar-fill 变量控制，
-		// 不再强行覆盖它们自身的背景，避免盖住侧栏里的折叠按钮等控件）
+		// 会话头/标签行不再应用顶栏背景（顶栏背景只上「应用/编辑」条）
+		'html[data-dsh-aether] [data-conversation-tabs], html[data-dsh-aether] [data-aether-topbar] { background-image: none !important; }',
+		// 遮罩层透明（只改样式；删除宿主 React 节点会让图片查看/切换会话卡死）
+		'html[data-dsh-aether] [data-aether-mask-clear="1"] { background-color: transparent !important; background-image: none !important; }',
 		// 设置/图片查看的遮罩层用的是硬编码 #00000080（不是 CSS 变量），
 		// 通过 CSS Modules 的 _mask 类名直接清掉底色。
 		'html[data-dsh-aether] [class*="_mask"],',
@@ -918,22 +1188,6 @@ function buildStyleText() {
 		'html[data-dsh-aether] [class*="_scrim"],',
 		'html[data-dsh-aether] [class*="_backdrop"] {',
 		'  background-color: rgba(0, 0, 0, 0) !important;',
-		'}',
-		'html[data-dsh-aether] [data-aether-input-host] {',
-		'  background-color: var(--aether-chrome-fill) !important;',
-		'}',
-		// Windows 标题栏（「应用/编辑」那行）：
-		// 侧栏 = frame + sidebarCol 两层半透明（≈0.75），标题栏只有 frame 一层（0.5）会显得浅。
-		// 这里恢复 ::before 的一层，并额外叠 --aether-titlebar-extra（默认 0.08）的暗色，
-		// 让标题栏与侧栏同档、略深一点点。
-		'html[data-windows-titlebar][data-dsh-aether] [data-aether-frame]::before {',
-		'  background: linear-gradient(rgba(0, 0, 0, var(--aether-titlebar-extra, .08)), rgba(0, 0, 0, var(--aether-titlebar-extra, .08))), var(--aether-chrome-fill) !important;',
-		'}',
-		// 顶栏（Windows 标题栏带「应用/编辑」那行）：frame 背景已由 sidebar-fill 控制，
-		// 这里把 sidebar-fill 直接绑到同一个 chrome 变量
-		'html[data-dsh-aether] body {',
-		'  --dsw-specific-sidebar-fill: var(--aether-chrome-fill) !important;',
-		'  --dsw-specific-sidebar-glass-fill: var(--aether-chrome-fill) !important;',
 		'}',
 		// 壁纸层：双缓冲淡入淡出（防闪烁）
 		'#dsh-aether-stage > .aether-wall { position:absolute; inset:0; z-index:1; opacity:0; transition:opacity var(--aether-transition, 420ms) ease; will-change:opacity; }',
@@ -1245,8 +1499,10 @@ function clearVar(name) {
 }
 
 // ── 金丝雀：先健康过一轮才武装 ──────────────────────────────────────────
-// 每秒 reconcile 一次，连续 N 次（默认 40 ≈ 10 秒）关键锚点全丢，就判定宿主
-// DOM 契约已不在：撤掉自己注入的 CSS 与 DOM，交还官方原生布局，绝不硬撑。
+// 每 2 秒 reconcile 一次；只要有一个关键锚点连续 N 次（默认 40 ≈ 80 秒）缺失，
+// 就判定宿主 DOM 契约已变：撤掉自己注入的 CSS 与 DOM，交还官方原生布局，绝不硬撑。
+// 旧实现要求 #root / body / html[data-platform] "三者同时"丢失，而 body 永远存在，
+// 等于这条保护永不触发 —— 现在改为"任一关键锚点连续缺失"。
 function canaryAnchors() {
 	var anchors = {
 		root: Boolean(document.getElementById('root')),
@@ -1265,8 +1521,8 @@ function canaryTick() {
 		platform: !anchors.platform,
 	};
 	A.canary.lost = lost;
-	var allLost = !anchors.root && !anchors.body && !anchors.platform;
-	if (allLost) {
+	var anyLost = lost.root || lost.body || lost.platform;
+	if (anyLost) {
 		A.canary.strikes += 1;
 	} else {
 		A.canary.strikes = 0;
@@ -1279,6 +1535,7 @@ function canaryTick() {
 function safeExit() {
 	if (A.canary.disabled) return;
 	A.canary.disabled = true;
+	A.canary.armed = false;
 	pushLog('error', '宿主 DOM 契约漂移：撤离注入，交还原生布局', { strikes: A.canary.strikes });
 	try { removeStyle(); } catch (error) { /* ignore */ }
 	try { removeStage(); } catch (error) { /* ignore */ }
@@ -1288,18 +1545,15 @@ function safeExit() {
 		clearInputHosts();
 	} catch (error) { /* ignore */ }
 	notify();
-	if (A.canary.timer) {
-		try { clearInterval(A.canary.timer); } catch (error) { /* ignore */ }
-		A.canary.timer = null;
-	}
 	reportDiag('safe-exit');
 }
 
 function startCanary() {
-	if (A.canary.timer) return;
-	A.canary.timer = true;
+	// idleEvery / idleStop 是真正的调度器；这里只记一个"是否已武装"的布尔，
+	// 绝不把布尔值当定时器句柄去 clearInterval（旧实现的逻辑错乱）。
+	if (A.canary.armed) return;
+	A.canary.armed = true;
 	idleEvery(2, canaryTick);
-	if (A.canary.timer && typeof A.canary.timer.unref === 'function') A.canary.timer.unref();
 }
 
 // ── 诊断上报 ─────────────────────────────────────────────────────────────
@@ -1416,6 +1670,20 @@ function subscribe(fn) {
 		var index = A.subscribers.indexOf(fn);
 		if (index !== -1) A.subscribers.splice(index, 1);
 	};
+}
+
+/** 显示一条面板提示；ms > 0 时自动消失。 */
+function toast(text, ms) {
+	A.toast = String(text || '');
+	notify();
+	if (ms && ms > 0) {
+		var expected = A.toast;
+		setTimeout(function () {
+			if (A.toast !== expected) return;   // 期间被新提示替换了，别清掉
+			A.toast = '';
+			notify();
+		}, ms);
+	}
 }
 
 function notify() {
