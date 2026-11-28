@@ -37,6 +37,8 @@ function provideService(ctx) {
 		},
 		themes: function () { return Object.keys(A.services).map(function (id) { return A.services[id]; }); },
 		diag: collectDiag,
+		probeMedia: function () { return probeMediaNow(); },
+		probeLayout: probeLayout,
 	};
 	try {
 		if (typeof ctx.provide === 'function') ctx.provide('aetherTheme');
@@ -202,6 +204,9 @@ var apply = function apply(ctx) {
 	try { startBubbleDeco(); } catch (error) { /* ignore */ }
 	try { startAvatars(); } catch (error) { /* ignore */ }
 
+	// 2.38) 失焦/不可见暂停：视频解码、小生物、鲸鱼、流星都跟着停
+	try { watchDecorPause(); } catch (error) { /* ignore */ }
+
 	// 2.4) 遮罩层清理（设置/图片查看的黑底直接删元素）
 	try { removeMaskLayers(); watchMaskLayers(); } catch (error) { /* ignore */ }
 
@@ -227,6 +232,7 @@ var apply = function apply(ctx) {
 				return function () {
 					try { idleStop(); } catch (error) { /* ignore */ }
 					try { scanStop(); } catch (error) { /* ignore */ }
+					try { unwatchDecorPause(); } catch (error) { /* ignore */ }
 					try { if (A.applyRaf) cancelAnimationFrame(A.applyRaf); A.applyRaf = null; } catch (error) { /* ignore */ }
 					try { if (A.rotationTimer) clearInterval(A.rotationTimer); } catch (error) { /* ignore */ }
 					try { if (A.diagTimer) clearInterval(A.diagTimer); } catch (error) { /* ignore */ }
