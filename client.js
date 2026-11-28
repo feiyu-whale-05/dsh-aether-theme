@@ -303,7 +303,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.1.0';
+		var VERSION = '1.2.0';
 
 		var A = {
 			ctx: null,
@@ -316,6 +316,8 @@ window.__ModuleLoader__.load({
 			layerEls: [],
 			scanEl: null,
 			canary: { strikes: 0, lost: {}, disabled: false, lastRun: 0, armed: false },
+			// 窗口失焦 / 不可见时暂停一切装饰性绘制（视频解码、小生物动画、鲸鱼、流星）
+			idle: { paused: false, idleTimer: null },
 			rotationTimer: null,
 			derived: null,
 			services: {},
@@ -684,6 +686,8 @@ window.__ModuleLoader__.load({
 					error.status = response.status;
 					throw error;
 				}
+				// raw: 直接给调用方 Response（媒体 Blob 兜底需要读 headers / blob()）
+				if (request.raw === true) return response;
 				var type = response.headers.get('content-type') || '';
 				return type.indexOf('application/json') !== -1 ? response.json() : response.text();
 			});
@@ -722,8 +726,13 @@ window.__ModuleLoader__.load({
 			if (!id) return '';
 			var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(id);
 			if (A.mediaToken) return url + '&mt=' + encodeURIComponent(A.mediaToken);
-			// 老 Host（还没有 mt）才回落到页面令牌
-			return A.token ? url + '&token=' + encodeURIComponent(A.token) : url;
+			// 关键：**不要**回落到页面令牌。
+			// Host 的 /api/wallpaper 只认 header 里的页面令牌或 query 里的媒体令牌；
+			// 把页面令牌塞进 query 在新版 Host 上必然 401，而 <video>/<img> 拿到 401
+			// 的 JSON 体后只会报「解码器打不开」——桌面版视频壁纸就是这么坏的。
+			// 这里返回不带令牌的 URL（会 401），并打标让媒体令牌到位后重建。
+			A.needMediaToken = true;
+			return url;
 		}
 
 		/** 媒体令牌有时效，长时间挂着的页面靠这条低频刷新续期。 */
@@ -751,7 +760,18 @@ window.__ModuleLoader__.load({
 				A.host.version = payload.version || VERSION;
 				A.host.wallpapers = Array.isArray(payload.wallpapers) ? payload.wallpapers : [];
 				A.host.diag = payload.diag || null;
-				if (payload.mediaToken) A.mediaToken = String(payload.mediaToken);
+				if (payload.mediaToken) {
+					var hadNone = !A.mediaToken;
+					A.mediaToken = String(payload.mediaToken);
+					// 首帧时媒体令牌还没到，壁纸/头像/挂件可能已经用"无令牌 URL"降级过；
+					// 令牌到位后重建一次（启动竞态，桌面版尤为明显）。
+					if (hadNone && A.needMediaToken) {
+						A.needMediaToken = false;
+						A.currentWallKey = '';           // 强制重建壁纸层
+						try { applyWallpaper('media-token'); } catch (error) { /* ignore */ }
+						try { scheduleScans(); } catch (error) { /* ignore */ }
+					}
+				}
 				A.host.remoteWallpaperMode = payload.appearance && payload.appearance.wallpaper ? payload.appearance.wallpaper.mode : null;
 				A.defaults = payload.defaultAppearance || null;
 				var previousWall = A.cfg && A.cfg.wallpaper ? A.cfg.wallpaper : null;
@@ -1311,6 +1331,31 @@ window.__ModuleLoader__.load({
 		 */
 		var SCAN_BUS = { timer: null, running: false };
 
+		/**
+		 * 全屏磨砂保险丝：frame 一旦接近整窗面积就撤掉 data-chrome-blur。
+		 * 只在扫描总线上跑（250ms 合并），不进 applyAppearance 热路径。
+		 */
+		function guardFrameBlur() {
+			try {
+				if (!document.documentElement.hasAttribute('data-chrome-blur')) return;
+				var frame = document.querySelector('[data-aether-frame]');
+				if (!frame) return;
+				var rect = frame.getBoundingClientRect();
+				var viewArea = window.innerWidth * window.innerHeight;
+				if (viewArea <= 0) return;
+				var coverage = (rect.width * rect.height) / viewArea;
+				A.frameCoverage = Math.round(coverage * 1000) / 1000;
+				var style = window.getComputedStyle(frame);
+				var hasBlur = (style.backdropFilter && style.backdropFilter !== 'none')
+					|| (style.webkitBackdropFilter && style.webkitBackdropFilter !== 'none');
+				if (coverage > 0.6 && hasBlur) {
+					A.chromeBlurBanned = true;           // 本次会话内不再启用，避免和 applyAppearance 反复拉锯
+					document.documentElement.removeAttribute('data-chrome-blur');
+					pushLog('warn', '检测到全屏 backdrop-filter，已自动撤掉外壳磨砂', { coverage: A.frameCoverage });
+				}
+			} catch (error) { /* ignore */ }
+		}
+
 		function scheduleScans() {
 			try {
 				if (SCAN_BUS.timer) return;
@@ -1319,6 +1364,11 @@ window.__ModuleLoader__.load({
 					if (!A.ready) return;
 					if (SCAN_BUS.running) return;
 					SCAN_BUS.running = true;
+					// 安全阀：backdrop-filter 挂在 [data-aether-frame] 上，本轮实测该元素是 0×0
+					// （所以现在没有任何全屏 blur 成本）。但如果哪天 DOM 结构变了、它变成整窗元素，
+					// 就会立刻变成"每帧全屏 14px 模糊"——性能报告里最大的那个坑。
+					// 这里每次扫描量一次面积占比，超过 60% 就自动撤掉磨砂属性，宁可少一层观感。
+					try { guardFrameBlur(); } catch (error) { /* ignore */ }
 					if (A.cfg && A.cfg.enabled !== false && !A.canary.disabled) {
 						// 外壳标记：AppFrame（顶栏 ::before 的宿主）与顶栏行。
 						// 这两个函数以前定义了却从未被调用 —— 结果顶栏背景图/底色规则
@@ -1499,8 +1549,19 @@ window.__ModuleLoader__.load({
 				'#dsh-aether-stage > .aether-wall { position:absolute; inset:0; z-index:1; opacity:0; transition:opacity var(--aether-transition, 420ms) ease; will-change:opacity; }',
 				'#dsh-aether-stage > .aether-wall.is-on { opacity:1; }',
 				'#dsh-aether-stage > .aether-wall > img, #dsh-aether-stage > .aether-wall > video { width:100%; height:100%; display:block; object-fit:cover; }',
-				'#dsh-aether-stage > .aether-wall > img, #dsh-aether-stage > .aether-wall > video, #dsh-aether-stage > .aether-wall > .aether-css { filter: brightness(var(--aether-wall-brightness, 0.85)); }',
-				'#dsh-aether-stage > .aether-veil { position:absolute; inset:0; z-index:2; background: var(--aether-veil); pointer-events:none; mix-blend-mode: var(--aether-content-blend, normal); }',
+				// 壁纸层不再无条件套 filter: brightness()。
+				// 压暗（brightness < 1）改由 .aether-veil 的纯黑遮罩承担 —— 视觉等价，
+				// 但省掉一次每帧全屏离屏滤镜（视频/动画壁纸因此更容易走直接 overlay）。
+				// 只有需要「提亮」（brightness > 1）时才保留 filter，因为遮罩无法提亮。
+				'#dsh-aether-stage[data-aether-wall-boost="on"] > .aether-wall > img,' ,
+				'#dsh-aether-stage[data-aether-wall-boost="on"] > .aether-wall > video,' ,
+				'#dsh-aether-stage[data-aether-wall-boost="on"] > .aether-wall > .aether-css {' ,
+				'  filter: brightness(var(--aether-wall-brightness, 0.85));',
+				'}',
+				// veil 只做「压暗」，永远 normal 混合。
+				// 旧实现用 mix-blend-mode: multiply 挂在全屏，而 dim=0 时颜色是全透明 ——
+				// 等于每帧强制一次毫无可视贡献的全屏 blend pass（实测确认）。
+				'#dsh-aether-stage > .aether-veil { position:absolute; inset:0; z-index:2; background: var(--aether-veil); pointer-events:none; mix-blend-mode: var(--aether-veil-blend, normal); }',
 				// 纯 CSS 预设背景
 				'#dsh-aether-stage .aether-css { position:absolute; inset:0; }',
 				'#dsh-aether-stage .aether-css.aurora { background: radial-gradient(120% 90% at 15% 10%, #2b3a67 0%, transparent 55%), radial-gradient(100% 80% at 85% 20%, #5b3a7e 0%, transparent 60%), radial-gradient(120% 100% at 50% 100%, #12343b 0%, transparent 65%), linear-gradient(160deg, #0b1020 0%, #101a2e 50%, #0a0f18 100%); animation: aether-drift 28s ease-in-out infinite alternate; }',
@@ -1637,6 +1698,8 @@ window.__ModuleLoader__.load({
 				'  transition: box-shadow .18s ease;',
 				'}',
 				'#dsh-aether-critters svg { position:absolute; display:block; }',
+				// 失焦 / 不可见时把小生物的 CSS 动画整体挂起：12 个常驻动画管线是真实的合成成本
+				'html[data-aether-paused="1"] #dsh-aether-critters .aether-critter { animation-play-state: paused !important; }',
 				'.aether-critter.fish { color:#9cc0f2; opacity:.42; animation: aether-fish-swim 12s ease-in-out infinite; will-change:transform; filter: drop-shadow(0 0 6px rgba(124,170,240,.35)); }',
 				'.aether-critter.fish.fish-left { animation-name: aether-fish-swim-left; animation-duration:16s; }',
 				'.aether-critter.bubble { color:#bcd6f7; opacity:0; animation: aether-bubble-rise 9s ease-in infinite; }',
@@ -1875,6 +1938,162 @@ window.__ModuleLoader__.load({
 			idleEvery(2, canaryTick);
 		}
 
+		// ── 媒体链路探针 ─────────────────────────────────────────────────────────
+		// 桌面版跑在 dsh-app:// 自定义协议下，<video>/<img> 的 401 只会表现成
+		// 「解码器打不开」，看不出是 URL、令牌还是协议层丢查询串。
+		// 这里用 fetch 直接量一次同一条 URL 的 HTTP 状态，结果随 diag 上报。
+		var MEDIA_PROBE = { last: 0, result: null, running: false };
+
+		function kickMediaProbe(force) {
+			try {
+				if (MEDIA_PROBE.running) return;
+				var cfg = A.cfg && A.cfg.wallpaper;
+				if (!cfg || !cfg.id) return;
+				var now = Date.now();
+				if (!force && now - MEDIA_PROBE.last < 20000) return;
+				MEDIA_PROBE.last = now;
+				MEDIA_PROBE.running = true;
+				var url = mediaUrl(cfg.id);
+				var using = /[?&]mt=/.test(url) ? 'mt' : (/[?&]token=/.test(url) ? 'page-token' : 'none');
+				var controller = null;
+				var timer = null;
+				var init = { credentials: 'same-origin' };
+				try {
+					controller = new AbortController();
+					init.signal = controller.signal;
+					timer = setTimeout(function () { try { controller.abort(); } catch (error) { /* ignore */ } }, 4000);
+				} catch (error) { controller = null; }
+				fetch(url, init).then(function (res) {
+					MEDIA_PROBE.result = {
+						at: Date.now(),
+						using: using,
+						status: res.status,
+						ok: res.ok,
+						type: (res.headers.get('content-type') || '').slice(0, 40),
+						url: url.slice(0, 160),
+					};
+				}).catch(function (error) {
+					MEDIA_PROBE.result = { at: Date.now(), using: using, status: 0, ok: false, error: String(error && error.message).slice(0, 100), url: url.slice(0, 160) };
+				}).then(function () {
+					MEDIA_PROBE.running = false;
+					if (timer) { try { clearTimeout(timer); } catch (error) { /* ignore */ } }
+				});
+			} catch (error) { /* ignore */ }
+		}
+
+		// ── 布局/合成探针 ───────────────────────────────────────────────────────
+		// 性能报告 §3.1 的关键悬念是「[data-aether-frame] 是不是全屏、是否真的挂着
+		// backdrop-filter」。这些数只能在渲染进程里量，而插件没有调试端口可用，
+		// 所以让插件自己量好、随 diag 一起上报，外部只读 /api/diag.json 即可。
+		function probeLayout() {
+			var out = {};
+			try {
+				var view = { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio || 1 };
+				out.view = view;
+				var frame = document.querySelector('[data-aether-frame]');
+				if (frame) {
+					var rect = frame.getBoundingClientRect();
+					var style = window.getComputedStyle(frame);
+					out.frame = {
+						// 面积占比：接近 1 就说明这是"整窗 AppFrame"，全屏 blur 成立
+						coverage: view.w > 0 && view.h > 0
+							? Math.round((rect.width * rect.height) / (view.w * view.h) * 1000) / 1000
+							: null,
+						rect: [Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height)],
+						backdrop: style.backdropFilter || style.webkitBackdropFilter || 'none',
+						filter: style.filter || 'none',
+						willChange: style.willChange || '',
+						layers: typeof style.transform === 'string' ? style.transform : '',
+					};
+				} else {
+					out.frame = null;
+				}
+				var veil = document.querySelector('#dsh-aether-stage .aether-veil');
+				out.veil = veil
+					? { blend: window.getComputedStyle(veil).mixBlendMode, bg: window.getComputedStyle(veil).backgroundColor }
+					: null;
+				var media = document.querySelector('#dsh-aether-stage .aether-wall video, #dsh-aether-stage .aether-wall img, #dsh-aether-stage .aether-css');
+				if (media) {
+					var mediaStyle = window.getComputedStyle(media);
+					out.media = {
+						tag: media.tagName.toLowerCase(),
+						filter: mediaStyle.filter || 'none',
+						willChange: mediaStyle.willChange || '',
+						videoSize: media.videoWidth ? [media.videoWidth, media.videoHeight] : null,
+						rect: (function () {
+							var r = media.getBoundingClientRect();
+							return [Math.round(r.width), Math.round(r.height)];
+						})(),
+					};
+				} else {
+					out.media = null;
+				}
+				var critters = document.getElementById('dsh-aether-critters');
+				out.critters = critters
+					? {
+						nodes: critters.childElementCount,
+						animation: (function () {
+							var first = critters.firstElementChild;
+							if (!first) return null;
+							var cs = window.getComputedStyle(first);
+							return { name: cs.animationName, playState: cs.animationPlayState, filter: cs.filter || 'none', willChange: cs.willChange || '' };
+						})(),
+					}
+					: null;
+				var whale = document.querySelector('#dsh-aether-whale canvas');
+				out.whaleCanvas = whale ? [whale.width, whale.height] : null;
+				out.hidden = Boolean(document.hidden);
+				out.focused = document.hasFocus ? document.hasFocus() : null;
+				// 桌面版跑在 dsh-app:// 自定义协议下，媒体 URL 的形态与 web 不同，
+				// 这几项用来判断「视频壁纸 401 / 加载失败」到底是 URL 还是令牌的问题。
+				out.media = out.media || null;
+				out.env = {
+					origin: String(location.origin || '').slice(0, 60),
+					protocol: String(location.protocol || ''),
+					apiBase: String(A.apiBase || ''),
+					tokenLen: A.token ? A.token.length : 0,
+					mediaTokenLen: A.mediaToken ? A.mediaToken.length : 0,
+					lastMediaFail: A.lastMediaFail || null,
+				};
+			} catch (error) {
+				out.error = String((error && error.message) || error).slice(0, 120);
+			}
+			return out;
+		}
+
+		/**
+		 * 帧节拍采样：用 rAF 间隔的分布粗略衡量合成压力。
+		 * 只做 N 帧、纯测量不改状态，供 A/B 对比（例如外壳磨砂 0 vs 14px）。
+		 */
+		function probeFrames(frames) {
+			var total = Math.max(6, Math.min(240, frames || 90));
+			return new Promise(function (resolve) {
+				var times = [];
+				var last = 0;
+				var done = 0;
+				function step(now) {
+					if (last) times.push(now - last);
+					last = now;
+					done += 1;
+					if (done >= total) {
+						times.sort(function (a, b) { return a - b; });
+						var pick = function (ratio) { return Math.round(times[Math.min(times.length - 1, Math.floor(times.length * ratio))] * 100) / 100; };
+						resolve({
+							frames: times.length,
+							median: pick(0.5),
+							p90: pick(0.9),
+							max: Math.round(times[times.length - 1] * 100) / 100,
+							avg: Math.round(times.reduce(function (a, b) { return a + b; }, 0) / times.length * 100) / 100,
+							fps: Math.round(1000 / (times.reduce(function (a, b) { return a + b; }, 0) / times.length) * 10) / 10,
+						});
+						return;
+					}
+					requestAnimationFrame(step);
+				}
+				requestAnimationFrame(step);
+			});
+		}
+
 		// ── 诊断上报 ─────────────────────────────────────────────────────────────
 		function collectDiag() {
 			var anchors = canaryAnchors();
@@ -1909,6 +2128,11 @@ window.__ModuleLoader__.load({
 					pressRunning: Boolean(A.pressRunning),
 					pressTarget: A.pressDebug || null,
 					pressApplied: A.pressApplied || null,
+					layout: probeLayout(),
+					// 媒体链路探针改为手动触发（window.__DSH_AETHER_THEME__.probeMedia()）：
+					// dsh-app:// 下对媒体流的 fetch 会悬挂、abort 不一定回调，
+					// 放在每 60s 的自动上报里只会让 diag 里这一项永远是 null。
+					mediaProbe: MEDIA_PROBE.result,
 					wallpaper: {
 						mode: A.cfg && A.cfg.wallpaper ? A.cfg.wallpaper.mode : null,
 						source: A.cfg && A.cfg.wallpaper ? A.cfg.wallpaper.source : null,
@@ -1997,6 +2221,67 @@ window.__ModuleLoader__.load({
 				var index = A.subscribers.indexOf(fn);
 				if (index !== -1) A.subscribers.splice(index, 1);
 			};
+		}
+
+		/**
+		 * 全局「暂停装饰性绘制」开关。
+		 * 触发条件：document.hidden 或窗口没有焦点。
+		 * 实测（真实桌面）：窗口被 DevTools 挡住、hasFocus()=false 时，
+		 * 视频仍在解码、鲸鱼仍 26fps、12 个小生物仍在跑 —— 纯浪费。
+		 */
+		function setDecorPaused(paused, reason) {
+			var next = Boolean(paused);
+			if (A.idle.paused === next) return;
+			A.idle.paused = next;
+			try {
+				if (next) document.documentElement.setAttribute('data-aether-paused', '1');
+				else document.documentElement.removeAttribute('data-aether-paused');
+			} catch (error) { /* ignore */ }
+			try {
+				if (next) { if (A.videoEl) A.videoEl.pause(); }
+				else { ensureVideoPlaying(); }
+			} catch (error) { /* ignore */ }
+			pushLog('info', next ? '装饰层暂停' : '装饰层恢复', { reason: reason || '', hidden: document.hidden });
+		}
+
+		function decorShouldPause() {
+			try {
+				if (document.hidden) return true;
+				if (typeof document.hasFocus === 'function' && !document.hasFocus()) return true;
+			} catch (error) { /* ignore */ }
+			return false;
+		}
+
+		/** 焦点/可见性变化 → 重新计算暂停态（带 200ms 去抖，避免切窗时抖动） */
+		function syncDecorPause(reason) {
+			try {
+				if (A.idle.idleTimer) clearTimeout(A.idle.idleTimer);
+				A.idle.idleTimer = setTimeout(function () {
+					A.idle.idleTimer = null;
+					setDecorPaused(decorShouldPause(), reason);
+				}, 200);
+			} catch (error) { /* ignore */ }
+		}
+
+		function watchDecorPause() {
+			try {
+				if (A.idle.watched) return;
+				A.idle.watched = true;
+				document.addEventListener('visibilitychange', function () { syncDecorPause('visibility'); });
+				window.addEventListener('blur', function () { syncDecorPause('blur'); });
+				window.addEventListener('focus', function () { syncDecorPause('focus'); });
+				syncDecorPause('init');
+			} catch (error) { /* ignore */ }
+		}
+
+		function unwatchDecorPause() {
+			try {
+				if (A.idle.idleTimer) clearTimeout(A.idle.idleTimer);
+				A.idle.idleTimer = null;
+				A.idle.paused = false;
+				A.idle.watched = false;
+				document.documentElement.removeAttribute('data-aether-paused');
+			} catch (error) { /* ignore */ }
 		}
 
 		/** 显示一条面板提示；ms > 0 时自动消失。 */
@@ -2451,6 +2736,14 @@ window.__ModuleLoader__.load({
 				}
 			} catch (error) { /* 自定义 CSS 出错不影响主题 */ }
 
+			// 壁纸压暗：原来用 filter: brightness(x) 每帧做一次全屏离屏滤镜。
+			// brightness<1 的压暗效果与「叠一层黑 alpha=1-brightness」视觉等价，
+			// 而后者是普通绘制，不做离屏采样。brightness>1 无法用遮罩表达，才保留 filter。
+			var wallBrightness = clamp(A.cfg.wallpaper.brightness === undefined ? 0.85 : A.cfg.wallpaper.brightness, 0.3, 1.4);
+			var veilDim = clamp(A.cfg.wallpaper.dim === undefined ? 0 : A.cfg.wallpaper.dim, 0, 1);
+			var veilAlpha = clamp(veilDim + (wallBrightness < 1 ? (1 - wallBrightness) : 0), 0, 1);
+			veilAlpha = Math.round(veilAlpha * 1000) / 1000;
+
 			var vars = {
 				'--aether-accent': palette.accent,
 				'--aether-chrome-fill': rgba(chromeColor, chromeOpacity),
@@ -2493,8 +2786,9 @@ window.__ModuleLoader__.load({
 				'--aether-bg-blur': clamp(glass.backgroundBlur === undefined ? 0 : glass.backgroundBlur, 0, 64) + 'px',
 				'--aether-saturation': String(clamp(glass.saturation === undefined ? 1.15 : glass.saturation, 0.2, 2.5)),
 				'--aether-transition': clamp(A.cfg.theme.transitionMs, 0, 2000) + 'ms',
-				'--aether-veil': 'rgba(0,0,0,' + clamp(A.cfg.wallpaper.dim === undefined ? 0 : A.cfg.wallpaper.dim, 0, 1) + ')',
-				'--aether-wall-brightness': String(clamp(A.cfg.wallpaper.brightness === undefined ? 0.85 : A.cfg.wallpaper.brightness, 0.3, 1.4)),
+				// 压暗合并：dim（用户主动的黑色蒙层）+ (1 - brightness)（原本由 filter 承担的部分）
+				'--aether-veil': 'rgba(0,0,0,' + veilAlpha + ')',
+				'--aether-wall-brightness': String(wallBrightness),
 				'--aether-scanline': String(clamp(A.cfg.pixel.scanline === undefined ? 0.08 : A.cfg.pixel.scanline, 0, 0.4)),
 			};
 			Object.keys(vars).forEach(function (name) { setVar(name, vars[name]); });
@@ -2607,6 +2901,19 @@ window.__ModuleLoader__.load({
 
 			// 混合模式：给正文区域一个 blend 变量（默认 normal；multiply 用于浅壁纸 + 深字）
 			setVar('--aether-content-blend', A.cfg.theme.mixMode === 'normal' ? 'normal' : (A.cfg.theme.mixMode || 'normal'));
+			// veil 的混合模式只在 veil 真的可见时才用得上；alpha≈0 时强制 normal，
+			// 避免一次没有任何可视贡献的全屏 blend pass。
+			setVar('--aether-veil-blend', veilAlpha > 0.004
+				? (A.cfg.theme.mixMode === 'normal' ? 'normal' : (A.cfg.theme.mixMode || 'normal'))
+				: 'normal');
+			// 只有需要提亮（brightness > 1）时才给出 filter 的开关属性
+			try {
+				var stageForBoost = document.getElementById('dsh-aether-stage');
+				if (stageForBoost) {
+					if (wallBrightness > 1.001) stageForBoost.setAttribute('data-aether-wall-boost', 'on');
+					else stageForBoost.removeAttribute('data-aether-wall-boost');
+				}
+			} catch (error) { /* ignore */ }
 
 			// 玻璃模块关闭时把两个模糊都归零
 			if (!moduleOn('glass')) {
@@ -2627,7 +2934,7 @@ window.__ModuleLoader__.load({
 				var glassPx = moduleOn('glass')
 					? clamp(glassCfg.glassBlur === undefined ? 0 : glassCfg.glassBlur, 0, 64)
 					: 0;
-				if (chromePx > 0) {
+				if (chromePx > 0 && !A.chromeBlurBanned) {
 					document.documentElement.setAttribute('data-chrome-blur', 'on');
 				} else {
 					document.documentElement.removeAttribute('data-chrome-blur');
@@ -2783,6 +3090,8 @@ window.__ModuleLoader__.load({
 		 * Chromium 对"已脱离文档"的媒体元素不保证立刻挂起解码，4K 视频壁纸会持续吃 GPU/内存。
 		 */
 		function disposeWallLayer(layer) {
+			// 只有"整层被替换"时才释放 blob；同一层内部换 src 由调用方处理
+			try { releaseWallpaperBlob(); } catch (error) { /* ignore */ }
 			try {
 				var media = layer && layer.querySelector ? layer.querySelector('video') : null;
 				if (media) {
@@ -2819,6 +3128,55 @@ window.__ModuleLoader__.load({
 			return '';
 		}
 
+		/** 释放上一张 Blob 壁纸，避免切换多次后内存堆积 */
+		function releaseWallpaperBlob() {
+			try {
+				if (A.videoBlobUrl) { URL.revokeObjectURL(A.videoBlobUrl); A.videoBlobUrl = null; }
+			} catch (error) { /* ignore */ }
+		}
+
+		/**
+		 * 用带 header 令牌的请求把媒体取成 Blob URL。
+		 * 只在 <video>/<img> 直连失败时兜底（query 令牌在 dsh-app:// 下不可靠）。
+		 * 超过上限（默认 96MB）不兜底，避免把大文件塞进内存。
+		 * @returns {Promise<string|null>}
+		 */
+		function fetchWallpaperBlob(source, kind) {
+			var id = '';
+			try {
+				var m = /[?&]id=([^&]+)/.exec(String(source || ''));
+				if (m) id = decodeURIComponent(m[1]);
+			} catch (error) { /* ignore */ }
+			if (!id) return Promise.resolve(null);
+			var limitBytes = 96 * 1024 * 1024;
+			// 加超时：自定义协议下媒体流请求可能一直不返回
+			var controller = null;
+			try { controller = new AbortController(); } catch (error) { controller = null; }
+			var timer = controller ? setTimeout(function () { try { controller.abort(); } catch (error) { /* ignore */ } }, 8000) : null;
+			var clearTimer = function () { if (timer) { try { clearTimeout(timer); } catch (error) { /* ignore */ } } };
+			return apiFetch('/api/wallpaper?id=' + encodeURIComponent(id), { raw: true, signal: controller ? controller.signal : undefined })
+				.then(function (r) { clearTimer(); return r; }, function (e) { clearTimer(); throw e; })
+				.then(function (response) {
+					if (!response || !response.ok) return null;
+					var length = Number(response.headers.get('content-length') || 0);
+					if (length && length > limitBytes) {
+						pushLog('warn', '媒体过大，放弃 Blob 兜底', { id: id, bytes: length });
+						return null;
+					}
+					return response.blob();
+				})
+				.then(function (blob) {
+					if (!blob || blob.size === 0) return null;
+					if (blob.size > limitBytes) return null;
+					releaseWallpaperBlob();
+					return URL.createObjectURL(blob);
+				})
+				.catch(function (error) {
+					pushLog('warn', '媒体 Blob 兜底失败', { id: id, message: String(error && error.message).slice(0, 80) });
+					return null;
+				});
+		}
+
 		function buildWallLayer(kind, source) {
 			var layer = document.createElement('div');
 			layer.className = 'aether-wall';
@@ -2838,12 +3196,45 @@ window.__ModuleLoader__.load({
 				video.setAttribute('muted', '');
 				video.setAttribute('playsinline', '');
 				video.src = source;
+				// 只兜底一次，避免 401 → blob 失败 → 再兜底的死循环
+				var recovered = false;
 				video.addEventListener('error', function () {
-					pushLog('warn', '视频壁纸加载失败，降级为纯 CSS 背景', { source: String(source).slice(0, 120) });
+					var fail = {
+						kind: 'video',
+						url: String(video.currentSrc || video.src || source).slice(0, 220),
+						code: video.error ? video.error.code : null,
+						message: video.error ? String(video.error.message || '').slice(0, 120) : '',
+						networkState: video.networkState,
+						at: Date.now(),
+					};
+					A.lastMediaFail = fail;
+					// 桌面版走 dsh-app:// 自定义协议：<video> 无法带自定义 header，
+					// 如果协议层把 query 吃掉或拒绝，直连必然失败。
+					// 这时改用 apiFetch（带 x-dsh-aether-token header，桌面版是通的）
+					// 把媒体取成 Blob，再用 blob: URL 播 —— 绕开协议层的鉴权限制。
+					if (!recovered && typeof fetch === 'function') {
+						recovered = true;
+						fetchWallpaperBlob(source, 'video').then(function (blobUrl) {
+							if (!blobUrl) {
+								pushLog('warn', '视频壁纸加载失败，降级为纯 CSS 背景', { url: fail.url, code: fail.code });
+								try { layer.remove(); } catch (error) { /* ignore */ }
+								A.currentWallKey = '';
+								var preset = A.cfg && A.cfg.wallpaper ? A.cfg.wallpaper.cssPreset : 'aurora';
+								swapWallLayer('css', preset || 'aurora');
+								return;
+							}
+							pushLog('info', '视频壁纸改走 Blob 通路', { url: fail.url });
+							A.videoBlobUrl = blobUrl;
+							video.src = blobUrl;
+							video.play().catch(function () { /* ignore */ });
+						});
+						return;
+					}
+					pushLog('warn', '视频壁纸加载失败，降级为纯 CSS 背景', { url: fail.url, code: fail.code });
 					try { layer.remove(); } catch (error) { /* ignore */ }
 					A.currentWallKey = '';
-					var preset = A.cfg && A.cfg.wallpaper ? A.cfg.wallpaper.cssPreset : 'aurora';
-					swapWallLayer('css', preset || 'aurora');
+					var preset2 = A.cfg && A.cfg.wallpaper ? A.cfg.wallpaper.cssPreset : 'aurora';
+					swapWallLayer('css', preset2 || 'aurora');
 				});
 				var playPromise = video.play();
 				if (playPromise && typeof playPromise.catch === 'function') {
@@ -2914,9 +3305,31 @@ window.__ModuleLoader__.load({
 			A.currentWallKey = key;
 		}
 
+		/** 读当前 veil 的 alpha（0~1）。alpha 为 0 时不该存在这个全屏层。 */
+		function veilAlphaNow() {
+			try {
+				var raw = getComputedStyle(document.documentElement).getPropertyValue('--aether-veil').trim();
+				var m = /rgba?\([^)]*?,\s*([0-9.]+)\s*\)/.exec(raw);
+				if (m) return Number(m[1]);
+				if (raw === 'transparent' || raw === '') return 0;
+				return 1;     // #000 之类的不透明色
+			} catch (error) {
+				return 0;
+			}
+		}
+
+		/**
+		 * 只有确实需要压暗时才创建 veil。
+		 * 旧实现无条件创建，于是 dim=0 + brightness=1 时白白多一个全屏合成层。
+		 * @returns {HTMLElement|null}
+		 */
 		function ensureVeil() {
 			var stage = ensureStage();
 			var veil = stage.querySelector('.aether-veil');
+			if (veilAlphaNow() <= 0.004) {
+				if (veil) { try { veil.remove(); } catch (error) { /* ignore */ } }
+				return null;
+			}
 			if (!veil) {
 				veil = document.createElement('div');
 				veil.className = 'aether-veil';
@@ -2929,6 +3342,7 @@ window.__ModuleLoader__.load({
 		/** 页面重新可见 / 窗口获得焦点时，把被节流暂停的视频壁纸续播。 */
 		function ensureVideoPlaying() {
 			try {
+				if (A.idle && A.idle.paused) return;   // 失焦/不可见：不要抢着续播
 				var video = A.videoEl;
 				if (!video || !video.isConnected) return;
 				if (document.hidden) return;
@@ -3180,10 +3594,64 @@ window.__ModuleLoader__.load({
 			if (METEOR.running && METEOR.raf === null) METEOR.raf = requestAnimationFrame(meteorTick);
 		}
 
+		/**
+		 * 预渲染的粒子 sprite。
+		 *
+		 * 旧实现每个粒子每一帧都 `ctx.createRadialGradient()` + 3 次 `addColorStop`，
+		 * 真实桌面 2560×1393 下指针一移动就是每帧几十次渐变对象分配
+		 * （软件光栅实测 80 次移动/4 秒 → 3848ms 主线程、9 个 long task）。
+		 *
+		 * 现在按 (hue 桶, size 桶) 预渲染成离屏 canvas，绘制时只改 globalAlpha + drawImage。
+		 * 亮度衰减/色相偏移用三段近似：在同一张 sprite 里叠 3 个同色不同 alpha 的圆。
+		 */
+		var METEOR_SPRITE = { cache: Object.create(null), hueBucket: 6 };
+
+		function meteorSpriteFor(hue, size) {
+			var hueKey = Math.round(hue / METEOR_SPRITE.hueBucket) * METEOR_SPRITE.hueBucket;
+			var sizeKey = Math.max(1, Math.round(size));
+			var key = hueKey + ':' + sizeKey;
+			var hit = METEOR_SPRITE.cache[key];
+			if (hit) return hit;
+
+			var radius = sizeKey * 4;
+			var px = Math.max(2, Math.ceil(radius * 2));
+			var canvas = document.createElement('canvas');
+			canvas.width = px;
+			canvas.height = px;
+			var c = canvas.getContext('2d');
+			if (c) {
+				var cx = px / 2;
+				var cy = px / 2;
+				var layers = [
+					[radius, 'hsla(' + hueKey + ',100%,76%,1)'],
+					[radius * 0.62, 'hsla(' + (hueKey + 18) + ',100%,64%,1)'],
+					[radius * 0.30, 'hsla(' + (hueKey + 30) + ',100%,60%,0.9)'],
+				];
+				c.globalCompositeOperation = 'lighter';
+				for (var i = 0; i < layers.length; i += 1) {
+					var g = c.createRadialGradient(cx, cy, 0, cx, cy, layers[i][0]);
+					g.addColorStop(0, layers[i][1]);
+					g.addColorStop(0.55, layers[i][1].replace(/,1\)$/, ',0.45)').replace(/,0\.9\)$/, ',0.4)'));
+					g.addColorStop(1, layers[i][1].replace(/,1\)$/, ',0)').replace(/,0\.9\)$/, ',0)'));
+					c.fillStyle = g;
+					c.beginPath();
+					c.arc(cx, cy, layers[i][0], 0, Math.PI * 2);
+					c.fill();
+				}
+			}
+			METEOR_SPRITE.cache[key] = canvas;
+			return canvas;
+		}
+
 		function meteorTick() {
 			if (!METEOR.running) { METEOR.raf = null; return; }
 			var ctx = METEOR.ctx;
 			if (!ctx) { METEOR.raf = null; return; }
+			// 失焦/不可见时不画（指针也不会动，粒子只是淡出占位）
+			if (A.idle && A.idle.paused) {
+				METEOR.raf = requestAnimationFrame(meteorTick);
+				return;
+			}
 			// 空闲停帧：没有粒子时不占 rAF（之前即使静止也每秒空转 60 次）
 			if (METEOR.particles.length === 0) {
 				ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
@@ -3214,14 +3682,13 @@ window.__ModuleLoader__.load({
 					continue;
 				}
 				var alpha = Math.max(0, p.life) * 0.62;
-				var gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 4);
-				gradient.addColorStop(0, 'hsla(' + p.hue + ', 100%, 76%, ' + alpha + ')');
-				gradient.addColorStop(0.45, 'hsla(' + (p.hue + 18) + ', 100%, 64%, ' + (alpha * 0.6) + ')');
-				gradient.addColorStop(1, 'hsla(' + (p.hue + 30) + ', 100%, 60%, 0)');
-				ctx.fillStyle = gradient;
-				ctx.beginPath();
-				ctx.arc(p.x, p.y, p.size * 4, 0, Math.PI * 2);
-				ctx.fill();
+				if (alpha <= 0.004) continue;
+				// sprite 预渲染 + drawImage：不再每帧分配渐变、不再重新解析颜色
+				var sprite = meteorSpriteFor(p.hue, p.size);
+				var half = sprite.width / 2;
+				ctx.globalAlpha = alpha;
+				ctx.drawImage(sprite, p.x - half, p.y - half);
+				ctx.globalAlpha = 1;
 			}
 			ctx.globalCompositeOperation = 'source-over';
 			METEOR.raf = requestAnimationFrame(meteorTick);
@@ -3289,6 +3756,8 @@ window.__ModuleLoader__.load({
 			}
 			METEOR.ctx = null;
 			METEOR.particles = [];
+			// 释放预渲染 sprite，避免长时间挂着占显存
+			try { METEOR_SPRITE.cache = Object.create(null); } catch (error) { /* ignore */ }
 		}
 
 		function syncMeteor() {
@@ -3639,6 +4108,13 @@ window.__ModuleLoader__.load({
 
 		function whaleStep(now) {
 			if (!WHALE.running || WHALE.disposed) return;
+			// 失焦/不可见时不画：省掉每帧 1400+ 次 fillRect 与 sin/cos。
+			// rAF 心跳保留，恢复焦点时立刻回画，不需要重建粒子。
+			if (A.idle && A.idle.paused) {
+				WHALE.last = now;
+				WHALE.raf = requestAnimationFrame(whaleStep);
+				return;
+			}
 			if (now - WHALE.last < 1000 / WHALE_FPS) {
 				WHALE.raf = requestAnimationFrame(whaleStep);
 				return;
@@ -4990,10 +5466,10 @@ window.__ModuleLoader__.load({
 				h('div', { className: 'aeth-card' },
 					h('h3', null, '壁纸亮度与压暗'),
 					sliderRow('壁纸亮度（filter，不盖遮罩）', wallpaper.brightness === undefined ? 0.85 : wallpaper.brightness, 0.3, 1.4, 0.05, function (value) {
-						mutate(function (draft) { draft.wallpaper.brightness = value; }, { wallpaper: true });
+						mutate(function (draft) { draft.wallpaper.brightness = value; }, { wallpaper: false });
 					}),
 					sliderRow('压暗遮罩（黑色蒙层）', wallpaper.dim === undefined ? 0.32 : wallpaper.dim, 0, 1, 0.02, function (value) {
-						mutate(function (draft) { draft.wallpaper.dim = value; }, { wallpaper: true });
+						mutate(function (draft) { draft.wallpaper.dim = value; }, { wallpaper: false });
 					}),
 					h('div', { className: 'aeth-note' }, '亮度直接调壁纸本身（不影响文字）；压暗是额外的一层黑色遮罩，会把文字一起压暗。'),
 				),
@@ -6117,6 +6593,8 @@ window.__ModuleLoader__.load({
 				},
 				themes: function () { return Object.keys(A.services).map(function (id) { return A.services[id]; }); },
 				diag: collectDiag,
+				probeMedia: function () { return probeMediaNow(); },
+				probeLayout: probeLayout,
 			};
 			try {
 				if (typeof ctx.provide === 'function') ctx.provide('aetherTheme');
@@ -6282,6 +6760,9 @@ window.__ModuleLoader__.load({
 			try { startBubbleDeco(); } catch (error) { /* ignore */ }
 			try { startAvatars(); } catch (error) { /* ignore */ }
 
+			// 2.38) 失焦/不可见暂停：视频解码、小生物、鲸鱼、流星都跟着停
+			try { watchDecorPause(); } catch (error) { /* ignore */ }
+
 			// 2.4) 遮罩层清理（设置/图片查看的黑底直接删元素）
 			try { removeMaskLayers(); watchMaskLayers(); } catch (error) { /* ignore */ }
 
@@ -6307,6 +6788,7 @@ window.__ModuleLoader__.load({
 						return function () {
 							try { idleStop(); } catch (error) { /* ignore */ }
 							try { scanStop(); } catch (error) { /* ignore */ }
+							try { unwatchDecorPause(); } catch (error) { /* ignore */ }
 							try { if (A.applyRaf) cancelAnimationFrame(A.applyRaf); A.applyRaf = null; } catch (error) { /* ignore */ }
 							try { if (A.rotationTimer) clearInterval(A.rotationTimer); } catch (error) { /* ignore */ }
 							try { if (A.diagTimer) clearInterval(A.diagTimer); } catch (error) { /* ignore */ }
