@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.83';
+var VERSION = '1.0.84';
 
 var A = {
 	ctx: null,
@@ -541,8 +541,10 @@ function defaultConfigFallback() {
 			strongColor: '#ffe6a3', fontFamily: '', fontSize: 0,
 		},
 		bubble: { official: true, color: '#dbe7ff', opacity: 0.62 },
-		bubbleDecoration: { enabled: false, text: '🎀', image: '' },
+		bubbleDecoration: { enabled: false, text: '🎀', image: '', x: 0, y: -2 },
 		avatars: { enabled: false, user: '我', agent: 'AI', userImage: '', agentImage: '' },
+		// 自定义 CSS：global 为全局注入；六个区域各自一段（便于按区域调样式）
+		regionCss: { enabled: false, global: '', sidebar: '', input: '', bubble: '', topbar: '', titlebar: '', settings: '' },
 		panel: { scale: 1.15 },
 		meteor: { enabled: false, density: 1, hue: 222, maxDist: 160 },
 		userMd: { enabled: true },
@@ -1094,7 +1096,7 @@ function buildStyleText() {
 		'.aeth-avatar-user { right:-38px; top:0px; background:rgba(65,118,230,.9); }',
 		'.aeth-avatar-agent { left:-40px; top:50%; margin-top:-15px; }',
 		// 用户气泡左下角装饰
-		'.aeth-bubble-deco { position:absolute; left:0px; bottom:-2px; font-size:17px; line-height:1; pointer-events:none; z-index:10; filter: drop-shadow(0 2px 5px rgba(0,0,0,.45)); user-select:none; }',
+		'.aeth-bubble-deco { position:absolute; left:var(--aether-deco-x, 0px); bottom:var(--aether-deco-y, -2px); font-size:17px; line-height:1; pointer-events:none; z-index:10; filter: drop-shadow(0 2px 5px rgba(0,0,0,.45)); user-select:none; }',
 		'.aeth-bubble-deco img { width:24px; height:24px; object-fit:contain; display:block; border-radius:6px; }',
 		'.aeth-tab { padding:5px 12px; border-radius:999px; border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.12)); background:transparent; color:var(--dsw-alias-label-secondary,#b6bec9); cursor:pointer; font-size:12px; }',
 		'.aeth-tab.on { color: var(--dsw-alias-label-primary,#fff); border-color: var(--aether-accent,#7aa2ff); background: color-mix(in srgb, var(--aether-accent,#7aa2ff) 16%, transparent); }',
