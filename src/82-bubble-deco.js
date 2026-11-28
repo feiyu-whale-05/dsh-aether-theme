@@ -51,7 +51,7 @@ function bubbleDecoConfig() {
 function renderBubbleDeco(node, cfg) {
 	try {
 		if (cfg.image) {
-			var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(cfg.image) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
+			var url = mediaUrl(cfg.image);
 			if (node.getAttribute('data-deco-image') !== cfg.image) {
 				node.setAttribute('data-deco-image', cfg.image);
 				node.textContent = '';
