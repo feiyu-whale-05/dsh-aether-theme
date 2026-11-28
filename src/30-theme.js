@@ -205,7 +205,14 @@ function applyAppearance(reason) {
 function applyAppearanceNow(reason) {
 	if (!A.cfg) return;
 	if (A.canary.disabled) return;
-	if (A.cfg.enabled === false) {
+	// 两层"关闭"都要真的生效：
+	//   ① 顶层 enabled —— 总开关
+	//   ② modules.theme.enabled —— 「主题引擎」模块开关
+	// 历史上 moduleOn('theme') 全仓库没有一处调用，导致模块页那个开关是死的
+	// （关掉之后什么都还在）。这里把它接进同一条拆解分支。
+	var engineDisabled = A.cfg.enabled === false
+		|| Boolean(A.cfg.modules && A.cfg.modules.theme && A.cfg.modules.theme.enabled === false);
+	if (engineDisabled) {
 		// 保留基础样式（左侧面板 / 设置分区的 .aeth-* UI），否则关掉主题后面板会失去样式，
 		// 用户就找不到重新开启的开关了。视觉层靠移除 data-dsh-aether 属性关掉。
 		ensureStyle();
@@ -227,6 +234,12 @@ function applyAppearanceNow(reason) {
 		try { clearAvatarMarks(); } catch (error) { /* ignore */ }
 		try { clearTopbarMark(); } catch (error) { /* ignore */ }
 		try { clearMaskMarks(); } catch (error) { /* ignore */ }
+		// 外壳标记也要一起摘掉，否则关掉主题后 DOM 上还留着 [data-aether-frame]
+		try {
+			document.querySelectorAll('[data-aether-frame]').forEach(function (node) {
+				try { node.removeAttribute('data-aether-frame'); } catch (error) { /* ignore */ }
+			});
+		} catch (error) { /* ignore */ }
 		try { scanStop(); } catch (error) { /* ignore */ }
 		try {
 			document.documentElement.removeAttribute('data-dsh-aether');
@@ -561,6 +574,31 @@ function applyAppearanceNow(reason) {
 		setVar('--aether-glass-blur', '0px');
 		setVar('--aether-bg-blur', '0px');
 	}
+
+	// ── 磨砂开关属性 ─────────────────────────────────────────────────────
+	// CSS 里那两块 backdrop-filter 规则挂在 [data-chrome-blur="on"] /
+	// [data-glass-blur="on"] 上，但历史上这两个属性**只被删除、从未被设置**，
+	// 等于「外壳磨砂」与「面板玻璃」两整块功能一直是死的（滑杆能拖，没任何效果）。
+	// 这里补上写入；值为 0 时移除属性，避免 0px 的 backdrop-filter 仍然创建包含块。
+	try {
+		var glassCfg = A.cfg.glass || {};
+		var chromePx = moduleOn('glass')
+			? clamp(glassCfg.chromeBlur === undefined ? 14 : glassCfg.chromeBlur, 0, 40)
+			: 0;
+		var glassPx = moduleOn('glass')
+			? clamp(glassCfg.glassBlur === undefined ? 0 : glassCfg.glassBlur, 0, 64)
+			: 0;
+		if (chromePx > 0) {
+			document.documentElement.setAttribute('data-chrome-blur', 'on');
+		} else {
+			document.documentElement.removeAttribute('data-chrome-blur');
+		}
+		if (glassPx > 0) {
+			document.documentElement.setAttribute('data-glass-blur', 'on');
+		} else {
+			document.documentElement.removeAttribute('data-glass-blur');
+		}
+	} catch (error) { /* ignore */ }
 
 	// 尾部不再做"全量 DOM 扫描"：applyAppearance 由滑杆每帧触发（rAF 合并），
 	// 而 scanBubbleDeco / scanAvatars 是 O(全文档) 的 querySelectorAll，
