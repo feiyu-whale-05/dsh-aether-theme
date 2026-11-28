@@ -1195,6 +1195,19 @@ function ModulesTab(cfg, mutate) {
 }
 
 function DiagTab(exportDiag) {
+	try {
+		return renderDiagTab(exportDiag);
+	} catch (error) {
+		// 诊断页自身出错时不能让整个面板消失，把错误显示出来
+		try { pushLog('error', '诊断页渲染失败', { message: String(error && error.message) }); } catch (ignored) { /* ignore */ }
+		return h('div', { className: 'aeth-card' },
+			h('h3', null, '诊断'),
+			h('div', { className: 'aeth-note', style: { color: '#ff9a9a' } }, '渲染失败：' + String(error && error.message)),
+		);
+	}
+}
+
+function renderDiagTab(exportDiag) {
 	var diag = A.lastDiag || collectDiag();
 	var anchors = canaryAnchors();
 	var ok = anchors.root && anchors.body && anchors.platform;
