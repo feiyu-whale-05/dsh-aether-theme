@@ -103,7 +103,10 @@ const body = makeElement('body')
 if (process.env.DARK !== '0') body.attributes['data-ds-dark-theme'] = ''
 const head = makeElement('head')
 const documentElement = makeElement('html')
-documentElement.attributes['data-platform'] = 'win32'
+// 刻意不设 data-platform —— dsh web 构建上就没有这个属性。
+// 金丝雀若把它当契约锚点，会在这里 80 秒后自我撤离（线上实测踩到过）。
+documentElement.attributes['data-platform'] = undefined
+delete documentElement.attributes['data-platform']
 documentElement.style.setProperty = (k, v) => vars.set(k, v)
 
 const createdStyles = []
@@ -124,7 +127,6 @@ const SELECTOR_TABLE = {
   '[contenteditable="true"]:not(.cm-content)': [editable],
   'button.hE4tRW_root': [statusButton],
   '[data-render-input]': [inputCard],
-  'html[data-platform]': [documentElement],
   '.aeth-avatar-agent': [],
   '.aeth-avatar': [],
   '[data-aether-mask-clear="1"]': [],
@@ -189,8 +191,8 @@ const win = {
   removeEventListener() {},
   requestAnimationFrame: (fn) => setTimeout(fn, 0),
   cancelAnimationFrame() {},
-  setInterval: () => 0,
-  clearInterval() {},
+  setInterval: (fn, ms) => setInterval(fn, ms),
+  clearInterval: (id) => clearInterval(id),
   confirm: () => false,
   fetch: () => Promise.reject(new Error('offline')),
   navigator: { language: 'zh-CN' },
@@ -212,8 +214,8 @@ const ctx = vm.createContext({
   console,
   setTimeout,
   clearTimeout,
-  setInterval: () => 0,
-  clearInterval() {},
+  setInterval: (fn, ms) => setInterval(fn, ms),
+  clearInterval: (id) => clearInterval(id),
   fetch: win.fetch,
   requestAnimationFrame: win.requestAnimationFrame,
   cancelAnimationFrame() {},
@@ -329,12 +331,35 @@ if (api) {
     await new Promise((resolve) => setTimeout(resolve, 120))
     check('重新启用应回写 html[data-dsh-aether]', documentElement.getAttribute('data-dsh-aether') === 'on',
       documentElement.getAttribute('data-dsh-aether'))
+
+    // 「主题引擎」模块开关也必须是真开关（历史上 moduleOn('theme') 没有任何调用点）
+    cfg.modules = cfg.modules || {}
+    cfg.modules.theme = { enabled: false }
+    api.apply('verify-module-theme-off')
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    check('modules.theme 关掉后也应拆解', !documentElement.hasAttribute('data-dsh-aether'),
+      documentElement.getAttribute('data-dsh-aether'))
+    cfg.modules.theme = { enabled: true }
+    api.apply('verify-module-theme-on')
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    check('modules.theme 打开后应回写', documentElement.getAttribute('data-dsh-aether') === 'on',
+      documentElement.getAttribute('data-dsh-aether'))
   }
 }
+
+// ── 金丝雀回归：没有 html[data-platform] 也不该扣分（web 构建的正常现象） ──
+await new Promise((resolve) => setTimeout(resolve, 4600))
+check('缺 data-platform 时金丝雀不应计 strike', api && api.diag && api.diag().strikes === 0,
+  api && api.diag ? api.diag().strikes : 'no api')
+check('缺 data-platform 时主题仍应在线', documentElement.getAttribute('data-dsh-aether') === 'on',
+  documentElement.getAttribute('data-dsh-aether'))
 
 if (problems.length) {
   console.log(`客户端验证失败 ${problems.length} 条：`)
   for (const p of problems) console.log('  - ' + p)
   process.exit(1)
 }
-console.log('客户端验证通过 — 变量桥 / 对比度 / 样式结构 / 扫描分支 / 关闭-启用往返')
+console.log('客户端验证通过 — 变量桥 / 对比度 / 样式结构 / 扫描分支 / 关闭-启用往返 / 金丝雀')
+// 金丝雀断言改用了真实的 setInterval，事件循环里还有 idle tick 与 60s 诊断定时器；
+// 主动退出，否则脚本跑完会挂住不返回。
+process.exit(0)
