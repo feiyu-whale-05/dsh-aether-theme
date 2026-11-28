@@ -803,7 +803,8 @@ window.__ModuleLoader__.load({
 							delete cfg.glass.inputFill;
 						}
 					}
-					if (cfg.wallpaper && cfg.wallpaper.dim === 0.32) cfg.wallpaper.dim = 0;
+					// 不要再把 dim 0.32 归零：0.32 现在是默认值（v1.1.0 统一默认值），
+					// 这条旧迁移会让每一份全新配置的默认值立刻被抹成 0 —— 踩过。
 				}
 				// v3-aqua-chrome：外壳磨砂对齐 Aqua（blur 14px / 暗度 50%）
 				if (cfg.migrations.indexOf('v3-aqua-chrome') === -1) {
@@ -1808,6 +1809,15 @@ window.__ModuleLoader__.load({
 		// 就判定宿主 DOM 契约已变：撤掉自己注入的 CSS 与 DOM，交还官方原生布局，绝不硬撑。
 		// 旧实现要求 #root / body / html[data-platform] "三者同时"丢失，而 body 永远存在，
 		// 等于这条保护永不触发 —— 现在改为"任一关键锚点连续缺失"。
+		/**
+		 * 「契约锚点」= 本插件 CSS 真正依赖的结构。#root 与 body 是硬依赖；
+		 * html[data-platform] 不是 —— dsh web 构建上根本没有这个属性（实测 false），
+		 * 把它算进来会让金丝雀自我撤离、诊断页永远显示"锚点丢失"。
+		 */
+		function canaryContractOk(anchors) {
+			return Boolean(anchors && anchors.root && anchors.body);
+		}
+
 		function canaryAnchors() {
 			var anchors = {
 				root: Boolean(document.getElementById('root')),
@@ -1826,8 +1836,12 @@ window.__ModuleLoader__.load({
 				platform: !anchors.platform,
 			};
 			A.canary.lost = lost;
-			var anyLost = lost.root || lost.body || lost.platform;
-			if (anyLost) {
+			// 只把「本插件 CSS 真正依赖的锚点」当契约：#root 与 body。
+			// html[data-platform] 不是契约 —— dsh web 上根本没有这个属性（实测 false），
+			// 把它算进"任一缺失即告警"会让金丝雀在 web 上 80 秒后自我撤离、主题直接消失。
+			// 它只作为诊断信息记录，不参与判定。
+			var contractLost = lost.root || lost.body;
+			if (contractLost) {
 				A.canary.strikes += 1;
 			} else {
 				A.canary.strikes = 0;
@@ -1877,6 +1891,7 @@ window.__ModuleLoader__.load({
 				uptimeMs: Date.now() - A.startedAt,
 				theme: { dark: isDarkTheme(), reduceMotion: shouldReduceMotion(), platform: (document.documentElement.getAttribute('data-platform') || '') },
 				anchors: anchors,
+				anchorsNote: anchors.platform ? null : 'html[data-platform] 缺省（非契约锚点，web 构建正常现象）',
 				strikes: A.canary.strikes,
 				config: A.cfg ? { mode: A.cfg.wallpaper && A.cfg.wallpaper.mode, modules: A.cfg.modules } : null,
 				tokens: tokens,
@@ -2002,6 +2017,15 @@ window.__ModuleLoader__.load({
 			A.subscribers.slice().forEach(function (fn) {
 				try { fn(); } catch (error) { /* 单个订阅者出错不影响其他 */ }
 			});
+		}
+
+		/** 一键设定「主题引擎」总开关：顶层 enabled 与 modules.theme 必须同步，否则两个开关各说各话。 */
+		function setThemeEnabled(cfg, value) {
+			if (!cfg) return cfg;
+			cfg.enabled = Boolean(value);
+			cfg.modules = cfg.modules || {};
+			cfg.modules.theme = Object.assign({}, cfg.modules.theme || {}, { enabled: Boolean(value) });
+			return cfg;
 		}
 
 		function moduleOn(name) {
@@ -2220,7 +2244,14 @@ window.__ModuleLoader__.load({
 		function applyAppearanceNow(reason) {
 			if (!A.cfg) return;
 			if (A.canary.disabled) return;
-			if (A.cfg.enabled === false) {
+			// 两层"关闭"都要真的生效：
+			//   ① 顶层 enabled —— 总开关
+			//   ② modules.theme.enabled —— 「主题引擎」模块开关
+			// 历史上 moduleOn('theme') 全仓库没有一处调用，导致模块页那个开关是死的
+			// （关掉之后什么都还在）。这里把它接进同一条拆解分支。
+			var engineDisabled = A.cfg.enabled === false
+				|| Boolean(A.cfg.modules && A.cfg.modules.theme && A.cfg.modules.theme.enabled === false);
+			if (engineDisabled) {
 				// 保留基础样式（左侧面板 / 设置分区的 .aeth-* UI），否则关掉主题后面板会失去样式，
 				// 用户就找不到重新开启的开关了。视觉层靠移除 data-dsh-aether 属性关掉。
 				ensureStyle();
@@ -2242,6 +2273,12 @@ window.__ModuleLoader__.load({
 				try { clearAvatarMarks(); } catch (error) { /* ignore */ }
 				try { clearTopbarMark(); } catch (error) { /* ignore */ }
 				try { clearMaskMarks(); } catch (error) { /* ignore */ }
+				// 外壳标记也要一起摘掉，否则关掉主题后 DOM 上还留着 [data-aether-frame]
+				try {
+					document.querySelectorAll('[data-aether-frame]').forEach(function (node) {
+						try { node.removeAttribute('data-aether-frame'); } catch (error) { /* ignore */ }
+					});
+				} catch (error) { /* ignore */ }
 				try { scanStop(); } catch (error) { /* ignore */ }
 				try {
 					document.documentElement.removeAttribute('data-dsh-aether');
@@ -2577,6 +2614,31 @@ window.__ModuleLoader__.load({
 				setVar('--aether-bg-blur', '0px');
 			}
 
+			// ── 磨砂开关属性 ─────────────────────────────────────────────────────
+			// CSS 里那两块 backdrop-filter 规则挂在 [data-chrome-blur="on"] /
+			// [data-glass-blur="on"] 上，但历史上这两个属性**只被删除、从未被设置**，
+			// 等于「外壳磨砂」与「面板玻璃」两整块功能一直是死的（滑杆能拖，没任何效果）。
+			// 这里补上写入；值为 0 时移除属性，避免 0px 的 backdrop-filter 仍然创建包含块。
+			try {
+				var glassCfg = A.cfg.glass || {};
+				var chromePx = moduleOn('glass')
+					? clamp(glassCfg.chromeBlur === undefined ? 14 : glassCfg.chromeBlur, 0, 40)
+					: 0;
+				var glassPx = moduleOn('glass')
+					? clamp(glassCfg.glassBlur === undefined ? 0 : glassCfg.glassBlur, 0, 64)
+					: 0;
+				if (chromePx > 0) {
+					document.documentElement.setAttribute('data-chrome-blur', 'on');
+				} else {
+					document.documentElement.removeAttribute('data-chrome-blur');
+				}
+				if (glassPx > 0) {
+					document.documentElement.setAttribute('data-glass-blur', 'on');
+				} else {
+					document.documentElement.removeAttribute('data-glass-blur');
+				}
+			} catch (error) { /* ignore */ }
+
 			// 尾部不再做"全量 DOM 扫描"：applyAppearance 由滑杆每帧触发（rAF 合并），
 			// 而 scanBubbleDeco / scanAvatars 是 O(全文档) 的 querySelectorAll，
 			// 放在这里等于拖动滑杆时每秒 120 次全量扫描 —— "拖滑杆卡顿"的直接原因。
@@ -2876,6 +2938,16 @@ window.__ModuleLoader__.load({
 
 		function applyWallpaper(reason) {
 			if (A.canary.disabled) return;
+			// 主题引擎整体关闭时绝不能再建舞台层：面板的 mutate 是"先 applyAppearance（拆解）
+			// 再 applyWallpaper"，后者会 ensureStage() 把刚拆掉的舞台又造回来（实测踩到：
+			// data-dsh-aether 已移除，但 #dsh-aether-stage 还在）。
+			var engineDisabled = A.cfg && (A.cfg.enabled === false
+				|| (A.cfg.modules && A.cfg.modules.theme && A.cfg.modules.theme.enabled === false));
+			if (engineDisabled) {
+				clearWallpaperLayers();
+				removeStage();
+				return;
+			}
 			var config = A.cfg && A.cfg.wallpaper;
 			if (!moduleOn('wallpaper') || !config || config.mode === 'none') {
 				clearWallpaperLayers();
@@ -3035,7 +3107,7 @@ window.__ModuleLoader__.load({
 			var setClosed = dismissed[1];
 			if (!moduleOn('diag') || !A.cfg.diag || !A.cfg.diag.showOverlay || closed || A.canary.disabled) return null;
 			var anchors = canaryAnchors();
-			var ok = anchors.root && anchors.body && anchors.platform;
+			var ok = canaryContractOk(anchors);
 			return h('div', { className: 'aeth-diag-overlay' },
 				h('div', { className: 'aeth-diag-head' },
 					h('span', null, t('title.diag') + ' · v' + VERSION),
@@ -3048,7 +3120,7 @@ window.__ModuleLoader__.load({
 				h('div', { className: ok ? 'aeth-ok' : 'aeth-bad' }, ok ? t('diag.canaryOk') : t('diag.canaryLost')),
 				h('div', { className: 'aeth-kv' },
 					h('b', null, '#root'), h('span', null, String(anchors.root)),
-					h('b', null, 'data-platform'), h('span', null, String(anchors.platform)),
+					h('b', null, 'data-platform'), h('span', null, anchors.platform ? 'true' : 'false（非契约锚点）'),
 					h('b', null, t('label.strikes')), h('span', null, String(A.canary.strikes)),
 					h('b', null, 'dark'), h('span', null, String(isDarkTheme())),
 				),
@@ -5150,7 +5222,7 @@ window.__ModuleLoader__.load({
 
 		function ModulesTab(cfg, mutate) {
 			var names = [
-				['theme', '主题引擎（对比度/取色）'],
+				['theme', '主题引擎（总开关：关掉=整套外观退场）'],
 				['wallpaper', t('title.wallpaper')],
 				['glass', t('title.glass')],
 				['pixel', t('title.pixel')],
@@ -5164,7 +5236,14 @@ window.__ModuleLoader__.load({
 				names.map(function (pair) {
 					var key = pair[0];
 					return toggleRow(pair[1], moduleOn(key), function (value) {
-						mutate(function (draft) { draft.modules[key].enabled = value; }, { wallpaper: key === 'wallpaper' || key === 'pixel' });
+						mutate(function (draft) {
+							if (key === 'theme') {
+								// 主题引擎同时是总开关：两个字段一起写，避免状态不一致
+								setThemeEnabled(draft, value);
+								return;
+							}
+							draft.modules[key].enabled = value;
+						}, { wallpaper: key === 'wallpaper' || key === 'pixel' || key === 'theme' });
 					});
 				}),
 			);
@@ -5186,7 +5265,7 @@ window.__ModuleLoader__.load({
 		function renderDiagTab(exportDiag) {
 			var diag = A.lastDiag || collectDiag();
 			var anchors = canaryAnchors();
-			var ok = anchors.root && anchors.body && anchors.platform;
+			var ok = canaryContractOk(anchors);
 			return h('div', null,
 				h('div', { className: 'aeth-card' },
 					h('h3', null, t('title.diag')),
@@ -5199,16 +5278,16 @@ window.__ModuleLoader__.load({
 						h('b', null, 'dark'), h('span', null, String(isDarkTheme())),
 						h('b', null, 'reduced-motion'), h('span', null, String(shouldReduceMotion())),
 						h('b', null, '#root'), h('span', null, String(anchors.root)),
-						h('b', null, 'data-platform'), h('span', null, String(anchors.platform)),
+						h('b', null, 'data-platform'), h('span', null, anchors.platform ? 'true' : 'false（非契约锚点，web 正常）'),
 						h('b', null, '配置文件'), h('span', null, (A.host.diag && A.host.diag.configFile) || '~/.dsh/aether-theme/config.json'),
 						h('b', null, '下压状态'), h('span', { className: A.pressRunning ? 'aeth-ok' : 'aeth-bad' },
 							A.pressRunning ? ('监听中（' + Math.round(TILT_MAX / 0.01745 * 10) / 10 + '° 倾斜）') : '未启动'),
 						h('b', null, '下压目标'), h('span', null, A.pressDebug ? (A.pressDebug.tag + '.' + (A.pressDebug.cls.split(' ')[0] || '') + (A.pressDebug.position ? ' [' + A.pressDebug.position + ']' : '')) : '（把指针移到对话框上再看）'),
-						h('b', null, '流星尾缀'), h('span', { className: (typeof METEOR !== 'undefined' && METEOR.canvas) ? 'aeth-ok' : 'aeth-bad' },
+						h('b', null, '流星尾缀'), h('span', { className: (typeof METEOR !== 'undefined' && METEOR.canvas) ? 'aeth-ok' : (meteorEnabled() ? 'aeth-bad' : '') },
 							(typeof METEOR !== 'undefined' && METEOR.canvas)
 								? ('运行中 · canvas ' + METEOR.canvas.width + '×' + METEOR.canvas.height + ' · 粒子 ' + METEOR.particles.length)
 								: (shouldReduceMotion() ? 'reduced-motion 静默' : (meteorEnabled() ? '已启用但未启动' : '开关未开'))),
-						h('b', null, '粒子/小鱼'), h('span', { className: (typeof CRITTERS !== 'undefined' && CRITTERS.built > 0) ? 'aeth-ok' : 'aeth-bad' },
+						h('b', null, '粒子/小鱼'), h('span', { className: (typeof CRITTERS !== 'undefined' && CRITTERS.built > 0) ? 'aeth-ok' : (moduleOn('fx') ? 'aeth-bad' : '') },
 							(typeof CRITTERS !== 'undefined' && CRITTERS.built > 0)
 								? CRITTERS.built + ' 个节点已注入'
 								: (shouldReduceMotion() ? '已被 reduced-motion 静默' : '未注入')),
@@ -5325,7 +5404,10 @@ window.__ModuleLoader__.load({
 				A.canary.disabled ? h('div', { className: 'aeth-card aeth-bad' }, t('safe.exited')) : null,
 				h('div', { className: 'aeth-card' },
 					h('h3', null, '快速开关'),
-					toggleRow('启用以太主题', cfg.enabled !== false, function (value) { mutate(function (draft) { draft.enabled = value; }); }),
+					// 「启用以太主题」是总开关：同时写顶层 enabled 与 modules.theme，
+					// 否则两个开关会各说各话（设置页显示"开"、模块页显示"关"，用户不知道听谁的）。
+					toggleRow('启用以太主题', cfg.enabled !== false,
+						function (value) { mutate(function (draft) { setThemeEnabled(draft, value); }); }),
 					chipsRow(t('label.mode'), [
 						{ value: 'none', label: t('mode.none') },
 						{ value: 'css', label: t('mode.css') },
