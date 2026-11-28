@@ -11,63 +11,6 @@ function useAetherTick() {
 	return state[0];
 }
 
-function parseUsage(raw) {
-	try {
-		var file = raw && raw['.dshw-usage.json'];
-		if (!file || typeof file !== 'object') return null;
-		var events = Array.isArray(file.events) ? file.events : [];
-		var last = events.length ? events[events.length - 1] : null;
-		return {
-			currency: 'CNY',
-			balance: Number.isFinite(Number(file.lastBalance)) ? Number(file.lastBalance) : null,
-			today: Number.isFinite(Number(file.todayUsage)) ? Number(file.todayUsage) : null,
-			dayStart: Number.isFinite(Number(file.dayStart)) ? Number(file.dayStart) : null,
-			lastTurn: last && Number.isFinite(Number(last.cost)) ? { cost: Number(last.cost), tokens: Number(last.tokens) || 0, model: last.model || '' } : null,
-		};
-	} catch (error) {
-		return null;
-	}
-}
-
-function fmtMoney(value) {
-	if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
-	return '¥' + Number(value).toFixed(2);
-}
-
-function fmtTokens(value) {
-	var n = Number(value) || 0;
-	if (n >= 100000000) return (n / 100000000).toFixed(2) + '亿';
-	if (n >= 10000) return (n / 10000).toFixed(1) + '万';
-	return String(n);
-}
-
-// ── 开屏动画：纯 CSS，播完自动卸载 ─────────────────────────────────────
-function BootSplash() {
-	var state = react.useState(true);
-	var visible = state[0];
-	var setVisible = state[1];
-	var config = A.cfg && A.cfg.boot ? A.cfg.boot : { durationMs: 2200 };
-	react.useEffect(function () {
-		if (!moduleOn('boot')) { setVisible(false); return undefined; }
-		if (config.skipOnReducedMotion !== false && shouldReduceMotion()) { setVisible(false); return undefined; }
-		var duration = clamp(config.durationMs || 2200, 400, 8000);
-		var timer = setTimeout(function () { setVisible(false); }, duration + 120);
-		return function () { clearTimeout(timer); };
-	}, []);
-	if (!visible || !moduleOn('boot') || A.canary.disabled) return null;
-	var duration = clamp(config.durationMs || 2200, 400, 8000);
-	return h('div', {
-		className: 'aeth-boot',
-		style: { '--aether-boot-dur': duration + 'ms' },
-		'aria-hidden': 'true',
-	},
-		h('div', { style: { display: 'grid', justifyItems: 'center' } },
-			h('div', { className: 'aeth-boot-mark' }),
-			h('div', { className: 'aeth-boot-text' }, t('boot.title')),
-		),
-	);
-}
-
 // ── 诊断浮层：屏幕内直接看锚点/金丝雀，不用开 DevTools ─────────────────
 function DiagOverlay() {
 	useAetherTick();
