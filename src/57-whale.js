@@ -213,6 +213,13 @@ function whaleDraw(assembly, time) {
 
 function whaleStep(now) {
 	if (!WHALE.running || WHALE.disposed) return;
+	// 失焦/不可见时不画：省掉每帧 1400+ 次 fillRect 与 sin/cos。
+	// rAF 心跳保留，恢复焦点时立刻回画，不需要重建粒子。
+	if (A.idle && A.idle.paused) {
+		WHALE.last = now;
+		WHALE.raf = requestAnimationFrame(whaleStep);
+		return;
+	}
 	if (now - WHALE.last < 1000 / WHALE_FPS) {
 		WHALE.raf = requestAnimationFrame(whaleStep);
 		return;
