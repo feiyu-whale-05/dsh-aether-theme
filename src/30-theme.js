@@ -333,6 +333,47 @@ function applyAppearanceNow(reason) {
 		}
 	})();
 
+	// 气泡挂件坐标
+	var deco = A.cfg.bubbleDecoration || {};
+	setVar('--aether-deco-x', clamp(deco.x === undefined ? 0 : deco.x, -40, 120) + 'px');
+	setVar('--aether-deco-y', clamp(deco.y === undefined ? -2 : deco.y, -40, 120) + 'px');
+
+	// 自定义 CSS（全局 + 区域），注入独立 style 标签，关掉即移除
+	try {
+		var cssCfg = A.cfg.regionCss || {};
+		var styleEl = document.getElementById('dsh-aether-custom-css');
+		if (cssCfg.enabled === true) {
+			var parts = [];
+			if (cssCfg.global) parts.push('/* global */ ' + cssCfg.global);
+			var regionScope = {
+				sidebar: '[class*="sidebarCol"]',
+				input: '[data-aether-input-host]',
+				bubble: '[data-message-bubble]',
+				topbar: '[data-conversation-tabs], [data-aether-topbar]',
+				titlebar: '[data-aether-frame]::before',
+				settings: '[data-global-panel]',
+			};
+			Object.keys(regionScope).forEach(function (key) {
+				var body = cssCfg[key];
+				if (!body) return;
+				parts.push('/* ' + key + ' */ ' + String(body).replace(/\{\{self\}\}/g, regionScope[key]));
+			});
+			var cssText = parts.join(' ');
+			if (cssText) {
+				if (!styleEl) {
+					styleEl = document.createElement('style');
+					styleEl.id = 'dsh-aether-custom-css';
+					document.head.appendChild(styleEl);
+				}
+				if (styleEl.textContent !== cssText) styleEl.textContent = cssText;
+			} else if (styleEl) {
+				styleEl.remove();
+			}
+		} else if (styleEl) {
+			styleEl.remove();
+		}
+	} catch (error) { /* 自定义 CSS 出错不影响主题 */ }
+
 	var vars = {
 		'--aether-accent': palette.accent,
 		'--aether-chrome-fill': rgba(chromeColor, chromeOpacity),
