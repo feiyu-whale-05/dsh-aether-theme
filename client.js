@@ -56,6 +56,9 @@ window.__ModuleLoader__.load({
 				'action.pick': '选用',
 				'action.close': '关闭',
 				'action.save': '保存',
+				'action.auto': '自动',
+				'pack.confirm': '导入主题包会覆盖当前外观（原配置会先备份）。继续？',
+				'pack.rejected': '主题包被拒绝：含不安全的字段或 CSS',
 				'action.rotating': '轮换中',
 				'action.stopped': '已停止',
 				'state.loading': '加载中…',
@@ -173,6 +176,9 @@ window.__ModuleLoader__.load({
 				'action.pick': 'Use',
 				'action.close': 'Close',
 				'action.save': 'Save',
+				'action.auto': 'Auto',
+				'pack.confirm': 'Importing a pack overwrites the current look (the old config is backed up first). Continue?',
+				'pack.rejected': 'Pack rejected: unsafe fields or CSS',
 				'action.rotating': 'Rotating',
 				'action.stopped': 'Stopped',
 				'state.loading': 'Loading…',
@@ -297,25 +303,31 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.89';
+		var VERSION = '1.1.0';
 
 		var A = {
 			ctx: null,
 			ready: false,
-			host: { ok: false, version: '', wallpapers: [], usage: null, diag: null },
+			host: { ok: false, version: '', wallpapers: [], diag: null },
 			cfg: null,
 			defaults: null,
 			styleEl: null,
 			stageEl: null,
 			layerEls: [],
 			scanEl: null,
-			canary: { strikes: 0, lost: {}, disabled: false, lastRun: 0, timer: null },
+			canary: { strikes: 0, lost: {}, disabled: false, lastRun: 0, armed: false },
 			rotationTimer: null,
 			derived: null,
 			services: {},
+			token: '',
+			mediaToken: '',
 			flags: { reduceMotion: false, dark: true },
 			lastDiag: null,
 			lastUpload: 0,
+			// 面板顶部的一行提示（上传进度 / 失败原因 / 诊断按钮反馈）。
+			// 以前叫 A.bgUploadState —— 名字只对背景上传有意义，后来被诊断页复用成通用提示，
+			// 属于「全局变量当消息总线」，这里正名为 toast 并提供唯一入口 toast()。
+			toast: '',
 			subscribers: [],
 			startedAt: Date.now(),
 			logs: [],
@@ -701,6 +713,28 @@ window.__ModuleLoader__.load({
 				});
 		}
 
+		/**
+		 * 媒体 URL（<img>/<video> 用）：优先带短时效媒体令牌 mt，
+		 * 绝不把页面令牌塞进 query —— 那会进入宿主访问日志、Referer、DevTools、浏览器历史。
+		 * Host 的 /api/wallpaper 专属放行 mt；页面令牌只在 XHR header 里用。
+		 */
+		function mediaUrl(id) {
+			if (!id) return '';
+			var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(id);
+			if (A.mediaToken) return url + '&mt=' + encodeURIComponent(A.mediaToken);
+			// 老 Host（还没有 mt）才回落到页面令牌
+			return A.token ? url + '&token=' + encodeURIComponent(A.token) : url;
+		}
+
+		/** 媒体令牌有时效，长时间挂着的页面靠这条低频刷新续期。 */
+		function refreshMediaToken() {
+			if (!A.token || !A.host.ok) return Promise.resolve('');
+			return apiFetch('/api/state').then(function (payload) {
+				if (payload && payload.mediaToken) A.mediaToken = String(payload.mediaToken);
+				return A.mediaToken;
+			}).catch(function () { return A.mediaToken; });
+		}
+
 		function loadState(retried) {
 			return ensureToken().then(function () {
 				return apiFetch('/api/state');
@@ -716,8 +750,8 @@ window.__ModuleLoader__.load({
 				A.host.ok = true;
 				A.host.version = payload.version || VERSION;
 				A.host.wallpapers = Array.isArray(payload.wallpapers) ? payload.wallpapers : [];
-				A.host.usage = payload.usage || null;
 				A.host.diag = payload.diag || null;
+				if (payload.mediaToken) A.mediaToken = String(payload.mediaToken);
 				A.host.remoteWallpaperMode = payload.appearance && payload.appearance.wallpaper ? payload.appearance.wallpaper.mode : null;
 				A.defaults = payload.defaultAppearance || null;
 				var previousWall = A.cfg && A.cfg.wallpaper ? A.cfg.wallpaper : null;
@@ -780,10 +814,177 @@ window.__ModuleLoader__.load({
 						if (cfg.glass.chromeOpacity === 0.55) cfg.glass.chromeOpacity = 0;
 					}
 				}
-				if (dirty) saveConfig('migrate');
+				if (dirty) saveConfig('migrate').catch(function () { /* 迁移失败不致命 */ });
 			} catch (error) { /* ignore */ }
 			return cfg;
 		}
+		// ── 主题包导入校验 ───────────────────────────────────────────────────────
+		// 主题包是「别人给的文件」。只做 JSON.parse 后直接 merge 等于把任意字段塞进配置：
+		//  - regionCss.* 是任意 CSS：可 @import 外链回传、可用伪元素遮罩伪造 UI 做钓鱼、
+		//    可隐藏「恢复默认」按钮；
+		//  - 字段类型不校验：例如 regions 传字符串会让颜色算法递归/抛错。
+		// 所以这里做白名单 + 类型 + 长度 + 危险语法四道闸。返回 { ok, value } 或 { ok:false, reason }。
+		var PACK_TOP_KEYS = ['version', 'enabled', 'modules', 'theme', 'bubble', 'bubbleDecoration', 'avatars',
+			'regionCss', 'panel', 'meteor', 'userMd', 'wallpaper', 'glass', 'backgrounds', 'pixel', 'widget', 'fx', 'boot', 'diag'];
+		var PACK_CSS_MAX = 20000;
+		var PACK_CSS_BANNED = [
+			{ re: /@import/i, why: '@import（外链回源）' },
+			{ re: /expression\s*\(/i, why: 'expression()（脚本执行）' },
+			{ re: /javascript\s*:/i, why: 'javascript: 协议' },
+			{ re: /behavior\s*:/i, why: 'behavior（脚本执行）' },
+			{ re: /-moz-binding/i, why: '-moz-binding' },
+			{ re: /<\s*script/i, why: '内联 <script>' },
+			{ re: /url\s*\(\s*['"]?\s*(?:https?:|\/\/)/i, why: '外链 url()（数据回传）' },
+			{ re: /position\s*:\s*fixed[^}]*z-index\s*:\s*[1-9]\d{3,}/i, why: '超高层 fixed 遮罩（伪造 UI）' },
+		];
+		var PACK_IMAGE_ID = /^[0-9a-f]{8,64}$/i;
+
+		function packReject(reason) {
+			return { ok: false, reason: reason };
+		}
+
+		function packClampNumber(value, min, max, fallback) {
+			var n = Number(value);
+			if (!Number.isFinite(n)) return fallback;
+			return Math.min(max, Math.max(min, n));
+		}
+
+		function packColor(value, fallback) {
+			return /^#[0-9a-f]{3,8}$/i.test(String(value || '')) ? String(value) : fallback;
+		}
+
+		/** 逐条清洗 regionCss 的 7 段自定义 CSS。 */
+		function packSanitizeCss(text) {
+			if (text === undefined || text === null) return '';
+			var css = String(text);
+			if (!css.trim()) return '';
+			if (css.length > PACK_CSS_MAX) return { error: 'CSS 过长（>20KB）' };
+			for (var i = 0; i < PACK_CSS_BANNED.length; i += 1) {
+				if (PACK_CSS_BANNED[i].re.test(css)) return { error: PACK_CSS_BANNED[i].why };
+			}
+			return css;
+		}
+
+		/**
+		 * @param {unknown} raw 主题包里的 appearance 字段
+		 * @returns {{ok:boolean, value?:object, reason?:string}}
+		 */
+		function sanitizeThemePack(raw) {
+			if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return packReject('不是对象');
+			var out = {};
+			var keys = Object.keys(raw);
+			for (var k = 0; k < keys.length; k += 1) {
+				if (PACK_TOP_KEYS.indexOf(keys[k]) === -1) continue; // 白名单外的字段直接丢弃
+				out[keys[k]] = raw[keys[k]];
+			}
+
+			// 自定义 CSS：逐段清洗，任何一段命中危险语法就整体拒绝（宁可报错也不半应用）
+			if (out.regionCss !== undefined) {
+				if (!out.regionCss || typeof out.regionCss !== 'object') return packReject('regionCss 类型错误');
+				var cssKeys = ['global', 'sidebar', 'input', 'bubble', 'topbar', 'titlebar', 'settings'];
+				var cleanCss = { enabled: out.regionCss.enabled !== false };
+				for (var c = 0; c < cssKeys.length; c += 1) {
+					var one = packSanitizeCss(out.regionCss[cssKeys[c]]);
+					if (one && typeof one === 'object' && one.error) return packReject('CSS 含 ' + one.error);
+					cleanCss[cssKeys[c]] = one;
+				}
+				out.regionCss = cleanCss;
+			}
+
+			// 分区背景图只能引用本机壁纸库里的 id，不能是任意 URL
+			if (out.backgrounds !== undefined) {
+				if (!out.backgrounds || typeof out.backgrounds !== 'object') return packReject('backgrounds 类型错误');
+				var bgKeys = ['sidebar', 'input', 'bubble', 'topbar', 'titlebar', 'settings'];
+				var cleanBg = {};
+				for (var b = 0; b < bgKeys.length; b += 1) {
+					var item = out.backgrounds[bgKeys[b]];
+					if (!item || typeof item !== 'object') continue;
+					cleanBg[bgKeys[b]] = {
+						enabled: item.enabled === true,
+						color: packColor(item.color, '#22262f'),
+						opacity: packClampNumber(item.opacity, 0, 1, 0),
+						image: PACK_IMAGE_ID.test(String(item.image || '')) ? String(item.image) : '',
+					};
+				}
+				out.backgrounds = cleanBg;
+			}
+
+			// 头像图片同理
+			if (out.avatars !== undefined && out.avatars && typeof out.avatars === 'object') {
+				out.avatars = {
+					enabled: out.avatars.enabled === true,
+					user: String(out.avatars.user || '我').slice(0, 2),
+					agent: String(out.avatars.agent || 'AI').slice(0, 2),
+					userImage: PACK_IMAGE_ID.test(String(out.avatars.userImage || '')) ? String(out.avatars.userImage) : '',
+					agentImage: PACK_IMAGE_ID.test(String(out.avatars.agentImage || '')) ? String(out.avatars.agentImage) : '',
+				};
+			}
+			if (out.bubbleDecoration !== undefined && out.bubbleDecoration && typeof out.bubbleDecoration === 'object') {
+				out.bubbleDecoration = {
+					enabled: out.bubbleDecoration.enabled === true,
+					text: String(out.bubbleDecoration.text || '').slice(0, 4),
+					image: PACK_IMAGE_ID.test(String(out.bubbleDecoration.image || '')) ? String(out.bubbleDecoration.image) : '',
+					x: packClampNumber(out.bubbleDecoration.x, -40, 120, 0),
+					y: packClampNumber(out.bubbleDecoration.y, -40, 60, -2),
+				};
+			}
+
+			// 数值类字段统一夹紧，避免 NaN/Infinity 进颜色算法导致递归
+			if (out.theme && typeof out.theme === 'object') {
+				out.theme = Object.assign({}, out.theme, {
+					accent: packColor(out.theme.accent, '#7aa2ff'),
+					secondary: packColor(out.theme.secondary, '#9d7cff'),
+					contrastTarget: packClampNumber(out.theme.contrastTarget, 3, 21, 7),
+					transitionMs: packClampNumber(out.theme.transitionMs, 0, 2000, 420),
+					fontSize: packClampNumber(out.theme.fontSize, 0, 24, 0),
+					fontFamily: String(out.theme.fontFamily || '').slice(0, 80),
+					mixMode: ['normal', 'multiply', 'screen', 'overlay', 'soft-light', 'hard-light', 'color-burn'].indexOf(out.theme.mixMode) === -1 ? 'normal' : out.theme.mixMode,
+				});
+			}
+			if (out.glass && typeof out.glass === 'object') {
+				var glass = Object.assign({}, out.glass);
+				['glassBlur', 'backgroundBlur'].forEach(function (key) { if (glass[key] !== undefined) glass[key] = packClampNumber(glass[key], 0, 64, 0); });
+				if (glass.saturation !== undefined) glass.saturation = packClampNumber(glass.saturation, 0.2, 2.5, 1.15);
+				if (glass.border !== undefined) glass.border = packClampNumber(glass.border, 0.02, 0.6, 0.14);
+				if (glass.chromeOpacity !== undefined) glass.chromeOpacity = packClampNumber(glass.chromeOpacity, 0, 1, 0);
+				if (glass.chromeBlur !== undefined) glass.chromeBlur = packClampNumber(glass.chromeBlur, 0, 40, 14);
+				if (glass.regions && typeof glass.regions === 'object') {
+					var regionsOut = {};
+					['base', 'sidebar', 'layers', 'menu', 'input', 'bubble'].forEach(function (key) {
+						regionsOut[key] = packClampNumber(glass.regions[key], 0, 1, 0.5);
+					});
+					glass.regions = regionsOut;
+				}
+				if (glass.inputFills !== undefined) {
+					var seenFill = {};
+					glass.inputFills = (Array.isArray(glass.inputFills) ? glass.inputFills : [glass.inputFills])
+						.filter(function (fill) {
+							if (['frosted', 'solid', 'tint', 'none'].indexOf(fill) === -1 || seenFill[fill]) return false;
+							seenFill[fill] = true;
+							return true;
+						});
+					if (!glass.inputFills.length) glass.inputFills = ['frosted'];
+				}
+				delete glass.backgrounds; // 旧位置，一律以顶层 backgrounds 为准
+				out.glass = glass;
+			}
+			if (out.wallpaper && typeof out.wallpaper === 'object') {
+				var wall = Object.assign({}, out.wallpaper);
+				wall.dim = packClampNumber(wall.dim, 0, 1, 0.32);
+				wall.blur = packClampNumber(wall.blur, 0, 40, 0);
+				if (wall.mode !== undefined && ['none', 'image', 'video', 'css', 'rotate'].indexOf(wall.mode) === -1) wall.mode = 'none';
+				out.wallpaper = wall;
+			}
+			if (out.pixel && typeof out.pixel === 'object') {
+				out.pixel = Object.assign({}, out.pixel, {
+					nineSlice: packClampNumber(out.pixel.nineSlice, 0, 48, 12),
+					scanline: packClampNumber(out.pixel.scanline, 0, 0.4, 0.08),
+					crt: out.pixel.crt === true,
+				});
+			}
+			return { ok: true, value: out };
+		}
+
 		function mergeConfig(saved, defaults) {
 			// 始终以「客户端自带默认值」为基线：host 的 defaultAppearance 可能是旧版本
 			// （没有后来新增的字段，例如 backgrounds），只把它当作覆盖层。
@@ -811,9 +1012,14 @@ window.__ModuleLoader__.load({
 				if (typeof out.glass.inputFills === 'string') out.glass.inputFills = [out.glass.inputFills];
 				if (!Array.isArray(out.glass.inputFills) || !out.glass.inputFills.length) out.glass.inputFills = ['frosted'];
 			}
-			// 分区背景兜底：旧配置可能只有部分键
+			// 分区背景：唯一位置是顶层 cfg.backgrounds。
+			// 旧版本把它写在 glass.backgrounds 下，这里做一次就地迁移（保存即定型）。
+			if (out.glass && out.glass.backgrounds && typeof out.glass.backgrounds === 'object') {
+				out.backgrounds = Object.assign({}, out.glass.backgrounds, out.backgrounds || {});
+				delete out.glass.backgrounds;
+			}
 			if (!out.backgrounds || typeof out.backgrounds !== 'object') {
-				out.backgrounds = (defaultConfigFallback().backgrounds);
+				out.backgrounds = JSON.parse(JSON.stringify(defaultConfigFallback().backgrounds));
 			}
 			return out;
 		}
@@ -821,10 +1027,11 @@ window.__ModuleLoader__.load({
 			return {
 				version: 1,
 				enabled: true,
+				// 注意：boot（开屏）与 widget（余额挂件）已拆成独立插件
+				// （dsh-boot-splash-pro / dsh-cost-meter），这里不再保留它们的开关。
 				modules: {
 					theme: { enabled: true }, wallpaper: { enabled: true }, glass: { enabled: true },
-					pixel: { enabled: false }, widget: { enabled: true },
-					boot: { enabled: true }, diag: { enabled: true },
+					pixel: { enabled: false }, diag: { enabled: true },
 					inputGlow: { enabled: true }, fx: { enabled: true },
 				},
 				theme: {
@@ -849,8 +1056,12 @@ window.__ModuleLoader__.load({
 					glassBlur: 0, backgroundBlur: 0, saturation: 1.15, border: 0.14,
 					regions: { base: 0, sidebar: 0.55, layers: 0.55, menu: 0.74, input: 0.55, bubble: 0.5 },
 					inputFills: ['frosted'], inputFillOpacity: 0.55,
+					// chromeOpacity = 0 表示「跟随明暗自动」（深色 0.5 / 浅色 0.42，与 Aqua 同值）
 					chromeOpacity: 0, chromeBlur: 14,
-				// 分区背景：每个区域可单独设颜色与不透明度；enabled=false 时跟随外壳统一色
+				},
+				// 分区背景：每个区域可单独设颜色与不透明度；enabled=false 时跟随外壳统一色（chrome-fill）。
+				// 位置只能在顶层 —— 旧配置把它放在 glass 下，与客户端/面板读的 cfg.backgrounds 不是同一处，
+				// 靠"恰好被 mergeConfig 兜底"活着；现在由 mergeConfig 统一迁移到顶层。
 				backgrounds: {
 					sidebar: { enabled: false, image: '', color: '#22262f', opacity: 0 },
 					input: { enabled: false, image: '', color: '#22262f', opacity: 0 },
@@ -859,11 +1070,8 @@ window.__ModuleLoader__.load({
 					titlebar: { enabled: false, image: '', color: '#1b1f27', opacity: 0.6 },
 					settings: { enabled: false, image: '', color: '#22262f', opacity: 0.6 },
 				},
-				},
 				pixel: { theme: 'cabin', nineSlice: 12, crt: false, scanline: 0.08 },
-				widget: { position: 'bottom-right', showBalance: true, showToday: true, showTurn: true, warnBelow: 5 },
 				fx: { density: 60, fishCount: 3, whale: true, glow: true, press: true },
-				boot: { durationMs: 2200, style: 'ripple', skipOnReducedMotion: true },
 				diag: { showOverlay: false, canaryStrikes: 40 },
 			};
 		}
@@ -888,6 +1096,47 @@ window.__ModuleLoader__.load({
 				pushLog('warn', '配置保存失败（已写 localStorage 兜底）', { message: String(error && error.message) });
 				throw error;
 			});
+		}
+
+		/**
+		 * 统一落盘入口：600ms 防抖 + 一次飞行中只发最后一个。
+		 * 面板与设置页都必须走它 —— 旧设置页每次改动直接 saveConfig()，
+		 * 拖一次滑杆 = 30 次全量备份 + 30 次目录扫描（SSD 抖动）。
+		 */
+		var SAVE_BUS = { timer: null, inflight: null, pending: false, reason: 'save', listeners: [] };
+
+		function onSaveState(fn) {
+			if (typeof fn === 'function' && SAVE_BUS.listeners.indexOf(fn) === -1) SAVE_BUS.listeners.push(fn);
+			return function () {
+				var index = SAVE_BUS.listeners.indexOf(fn);
+				if (index !== -1) SAVE_BUS.listeners.splice(index, 1);
+			};
+		}
+
+		function emitSaveState(state, detail) {
+			for (var i = 0; i < SAVE_BUS.listeners.length; i += 1) {
+				try { SAVE_BUS.listeners[i](state, detail); } catch (error) { /* ignore */ }
+			}
+		}
+
+		function scheduleSave(reason) {
+			if (SAVE_BUS.timer) clearTimeout(SAVE_BUS.timer);
+			SAVE_BUS.timer = setTimeout(flushSave, 600);
+			SAVE_BUS.reason = reason || 'save';
+		}
+
+		function flushSave() {
+			SAVE_BUS.timer = null;
+			if (SAVE_BUS.inflight) { SAVE_BUS.pending = true; return; }
+			SAVE_BUS.inflight = saveConfig(SAVE_BUS.reason).then(function () {
+				emitSaveState('saved');
+			}).catch(function () {
+				emitSaveState('error');
+			}).then(function () {
+				SAVE_BUS.inflight = null;
+				if (SAVE_BUS.pending) { SAVE_BUS.pending = false; flushSave(); }
+			});
+			return SAVE_BUS.inflight;
 		}
 
 		function resetConfig() {
@@ -1030,6 +1279,10 @@ window.__ModuleLoader__.load({
 
 		function idleEvery(seconds, fn) {
 			try {
+				// 去重：同一函数重复注册会让热重载后 entries 越堆越多（内存泄漏 + 空转）
+				for (var d = 0; d < IDLE_TICK.entries.length; d += 1) {
+					if (IDLE_TICK.entries[d].fn === fn) { IDLE_TICK.entries[d].every = Math.max(1, seconds); return; }
+				}
 				IDLE_TICK.entries.push({ every: Math.max(1, seconds), last: 0, fn: fn });
 				if (IDLE_TICK.timer) return;
 				IDLE_TICK.timer = setInterval(function () {
@@ -1048,6 +1301,34 @@ window.__ModuleLoader__.load({
 			try { if (IDLE_TICK.timer) clearInterval(IDLE_TICK.timer); } catch (error) { /* ignore */ }
 			IDLE_TICK.timer = null;
 			IDLE_TICK.entries = [];
+		}
+
+		/**
+		 * 扫描总线：气泡挂件 / 头像这两类"全文档 querySelectorAll"只在
+		 * ① 配置变更 ② DOM 变更（watchDom 已 250ms 合并）时跑，且自身再合并 250ms。
+		 * 绝不放进 applyAppearanceNow —— 那是滑杆每帧都会走的路径。
+		 */
+		var SCAN_BUS = { timer: null, running: false };
+
+		function scheduleScans() {
+			try {
+				if (SCAN_BUS.timer) return;
+				SCAN_BUS.timer = setTimeout(function () {
+					SCAN_BUS.timer = null;
+					if (!A.ready) return;
+					if (SCAN_BUS.running) return;
+					SCAN_BUS.running = true;
+					try { scanBubbleDeco(); } catch (error) { /* ignore */ }
+					try { scanAvatars(); } catch (error) { /* ignore */ }
+					SCAN_BUS.running = false;
+				}, 250);
+			} catch (error) { /* ignore */ }
+		}
+
+		function scanStop() {
+			try { if (SCAN_BUS.timer) clearTimeout(SCAN_BUS.timer); } catch (error) { /* ignore */ }
+			SCAN_BUS.timer = null;
+			SCAN_BUS.running = false;
 		}
 
 		function ensureStage() {
@@ -1096,12 +1377,11 @@ window.__ModuleLoader__.load({
 				'  --dsw-alias-bg-overlay: var(--aether-bg-overlay) !important;',
 				'  --dsw-alias-bg-module-platform: var(--aether-bg-module) !important;',
 				'  --dsw-alias-bg-multi-select: var(--aether-bg-module) !important;',
-				'  --dsw-alias-bg-overlay: var(--aether-bg-overlay) !important;',
-
+				'',
 				'  --dsw-specific-menu: var(--aether-menu-fill) !important;',
 				'  --dsw-specific-input-major: var(--aether-input-fill) !important;',
 				'  --dsw-specific-selector: var(--aether-input-fill) !important;',
-
+				'',
 				'  --dsw-alias-markdown-code-block: var(--aether-code-bg) !important;',
 				'  --dsw-alias-markdown-code-block-banner: var(--aether-code-banner) !important;',
 				'  --dsw-alias-markdown-inline-code: var(--aether-inline-code) !important;',
@@ -1110,16 +1390,6 @@ window.__ModuleLoader__.load({
 				'  --dsw-alias-label-tertiary: var(--aether-label-tertiary, #aeb3bc) !important;',
 				'  --dsw-alias-label-caption: var(--aether-label-caption, #9aa0aa) !important;',
 				'  --dsw-alias-label-dimmed: var(--aether-label-dimmed, #7d838d) !important;',
-				// 设置页 / 图片放大查看的灰色来自宿主遮罩与浮层底色，统一透明（透出壁纸）
-				'html[data-dsh-aether] body {',
-				'  --dsw-alias-bg-mask-1: rgba(0, 0, 0, 0) !important;',
-				'  --dsw-alias-bg-mask-2: rgba(0, 0, 0, 0) !important;',
-				'  --dsw-alias-bg-mask-3: rgba(0, 0, 0, 0) !important;',
-				'  --dsw-alias-bg-mask-photo: rgba(0, 0, 0, 0) !important;',
-				'  --dsw-alias-bg-mask-drop: rgba(255, 255, 255, 0) !important;',
-				'  --dsw-alias-bg-overlay: rgba(20, 22, 27, 0) !important;',
-				'  --dsw-alias-bg-module-platform: rgba(20, 22, 27, 0) !important;',
-				'}',
 				'  --dsw-alias-border-l1: var(--aether-border-l1) !important;',
 				'  --dsw-alias-border-l2: var(--aether-border-l2) !important;',
 				'  --dsw-alias-border-l3: var(--aether-border-l3) !important;',
@@ -1133,9 +1403,19 @@ window.__ModuleLoader__.load({
 				'  --dsw-alias-state-business-primary: var(--aether-brand-blue) !important;',
 				'  --dsw-alias-state-business-secondary: var(--aether-brand-blue) !important;',
 				'}',
-				// 用户气泡：默认官方样式；只有 data-aether-bubble="custom" 时才接管
+				// 设置页 / 图片放大查看的灰底来自宿主遮罩变量，统一透明（透出壁纸）。
+				// 这些必须在同一条规则内声明：另起一条 body{} 会被 CSS Nesting 当成后代规则而永不匹配。
+				'html[data-dsh-aether] body {',
+				'  --dsw-alias-bg-mask-1: rgba(0, 0, 0, 0) !important;',
+				'  --dsw-alias-bg-mask-2: rgba(0, 0, 0, 0) !important;',
+				'  --dsw-alias-bg-mask-3: rgba(0, 0, 0, 0) !important;',
+				'  --dsw-alias-bg-mask-photo: rgba(0, 0, 0, 0) !important;',
+				'  --dsw-alias-bg-mask-drop: rgba(255, 255, 255, 0) !important;',
+				'}',
+				// 用户气泡：默认官方样式；只有 data-aether-bubble="custom" 时才接管。
+				// --aether-bubble-bg（分区"气泡"背景）优先，其次 --aether-bubble-fill（气泡模块自定色）。
 				'html[data-dsh-aether][data-aether-bubble="custom"] body {',
-				'  --dsw-specific-bubble: var(--aether-bubble-fill) !important;',
+				'  --dsw-specific-bubble: var(--aether-bubble-bg, var(--aether-bubble-fill)) !important;',
 				'  --dsw-specific-bubble-highlight: var(--aether-bubble-highlight) !important;',
 				'}',
 				// 浅色分支兜底：变量缺失时也不出现「白底白字」
@@ -1150,58 +1430,54 @@ window.__ModuleLoader__.load({
 				'html[data-dsh-aether][data-glass-blur="on"] [role="menu"] {',
 				'  backdrop-filter: blur(var(--aether-glass-blur, 0px)) saturate(var(--aether-saturation, 1.15));',
 				'}',
-				// 外壳统一：顶栏 / 侧栏 / 输入框卡片共用同一套「暗度 + 磨砂」
-				// 默认磨砂 0（纯半透明），调高时三处一起变磨砂。
-				// 只有显式打开磨砂（chromeBlur > 0）时才加 backdrop-filter；
-				// 否则悬空属性会创建 containing block，破坏侧栏里 fixed 按钮的定位。
-				// 三处外壳统一磨砂：侧栏列 / 顶栏 header / 输入框卡片，同一 blur 值（Aqua 默认 14px）
-				// 注意：不要给 [class*="sidebarCol"] 加 backdrop-filter。它和 transform 一样会创建
-				// 包含块，把侧栏里 position:fixed 的「收起/展开」按钮从视口坐标改到侧栏坐标，
-				// 按钮就跑到侧栏里去了（应始终待在「应用/编辑」顶栏）。
+				// 三处外壳统一磨砂：顶栏 frame / 输入框卡片，同一 blur 值（Aqua 默认 14px）。
+				// 只在显式打开磨砂（chromeBlur > 0）时才写 backdrop-filter。
+				// 严禁给 [class*="sidebarCol"] 加 backdrop-filter / transform / filter：
+				// 三者都会创建包含块，把侧栏里 position:fixed 的「收起/展开」按钮从视口坐标
+				// 改挂到侧栏坐标，按钮就"掉进"侧栏里了（它应当待在「应用/编辑」那条顶栏）。
 				'html[data-dsh-aether][data-chrome-blur="on"] [data-aether-frame],',
 				'html[data-dsh-aether][data-chrome-blur="on"] [data-aether-input-host] {',
 				'  backdrop-filter: blur(var(--aether-chrome-blur, 14px)) saturate(1.4) !important;',
 				'}',
-				// 侧栏里出现 dialog 时撤掉磨砂（避免给 fixed 元素建包含块，Aqua 同款处理）
-				// ── 分区背景（每块可单独覆盖；未启用时回落到外壳统一色/透明） ──
+				// ── 分区背景（每块可单独覆盖；未启用时回落到外壳统一色 chrome-fill） ──
+				// 每个分区只允许【一条】声明。同特异性后写的会无条件吞掉前面的自定义变量，
+				// 这正是"分区背景能调但无效"的根因，别再往下追加同名规则。
 				'html[data-dsh-aether] body {',
 				'  --dsw-specific-sidebar-fill: var(--aether-sidebar-bg, var(--aether-chrome-fill)) !important;',
 				'  --dsw-specific-sidebar-glass-fill: var(--aether-sidebar-bg, var(--aether-chrome-fill)) !important;',
 				'}',
+				// 侧栏背景图：铺在底色之上
+				'html[data-dsh-aether] [class*="sidebarCol"] {',
+				'  background-image: var(--aether-sidebar-img, none) !important;',
+				'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
+				'}',
+				// 「应用/编辑」顶栏 ::before：底色 + 额外暗化 + 背景图，一条规则写全（别再另起同名规则）
 				'html[data-windows-titlebar][data-dsh-aether] [data-aether-frame]::before {',
 				'  background-color: var(--aether-topbar-bg, var(--aether-titlebar-bg, var(--aether-chrome-fill))) !important;',
 				'  background-image: linear-gradient(rgba(0, 0, 0, var(--aether-titlebar-extra, .08)), rgba(0, 0, 0, var(--aether-titlebar-extra, .08))), var(--aether-topbar-img, var(--aether-titlebar-img, none)) !important;',
 				'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 				'}',
-				// 会话头/标签行不再应用顶栏背景（顶栏背景只上「应用/编辑」条）
-				'html[data-dsh-aether] [data-aether-input-host] { background-color: var(--aether-input-bg, var(--aether-chrome-fill)) !important; }',
-				'html[data-dsh-aether] [data-global-panel] { background-color: var(--aether-settings-bg, transparent) !important; }',
-				'html[data-dsh-aether] body { --dsw-specific-bubble: var(--aether-bubble-bg, var(--dsw-specific-bubble-default, #dbe7ff8a)) !important; }',
-				// 分区背景图（在底色之上平铺/裁切）
-				'html[data-dsh-aether] [class*="sidebarCol"] {',
-				'  background-image: var(--aether-sidebar-img, none) !important;',
-				'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
-				'}',
-						// 遮罩层透明（只改样式；删除宿主 React 节点会让图片查看/切换会话卡死）
-				'html[data-dsh-aether] [data-aether-mask-clear="1"] { background-color: transparent !important; background-image: none !important; }',
-		'html[data-dsh-aether] [data-aether-input-host] {',
+				// 输入框卡片：底色 + 背景图（一条规则）
+				'html[data-dsh-aether] [data-aether-input-host] {',
+				'  background-color: var(--aether-input-bg, var(--aether-chrome-fill)) !important;',
 				'  background-image: var(--aether-input-img, none) !important;',
 				'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 				'}',
-				'html[data-dsh-aether] [data-conversation-tabs], html[data-dsh-aether] [data-aether-topbar] { background-image: none !important; }',
-				'html[data-dsh-aether][data-windows-titlebar] [data-aether-frame]::before {',
-				'  background-image: var(--aether-titlebar-img, none) !important;',
-				'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
-				'}',
+				// 设置面板：底色 + 背景图（一条规则）
 				'html[data-dsh-aether] [data-global-panel] {',
+				'  background-color: var(--aether-settings-bg, transparent) !important;',
 				'  background-image: var(--aether-settings-img, none) !important;',
 				'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 				'}',
+				// 用户气泡底色：只在 data-aether-bubble="custom"（官方样式被显式关掉）时接管，
+				// 否则必须让宿主主题自己决定，否则深色主题会被钉成浅蓝底 + 浅字（对比度约 1.3:1）。
 				'html[data-dsh-aether] body {',
 				'  --dsw-specific-bubble-image: var(--aether-bubble-img, none);',
 				'}',
-				// 输入框卡片底色统一到外壳变量（侧栏与顶栏由宿主的 frame/sidebar-fill 变量控制，
-				// 不再强行覆盖它们自身的背景，避免盖住侧栏里的折叠按钮等控件）
+				// 会话头/标签行不再应用顶栏背景（顶栏背景只上「应用/编辑」条）
+				'html[data-dsh-aether] [data-conversation-tabs], html[data-dsh-aether] [data-aether-topbar] { background-image: none !important; }',
+				// 遮罩层透明（只改样式；删除宿主 React 节点会让图片查看/切换会话卡死）
+				'html[data-dsh-aether] [data-aether-mask-clear="1"] { background-color: transparent !important; background-image: none !important; }',
 				// 设置/图片查看的遮罩层用的是硬编码 #00000080（不是 CSS 变量），
 				// 通过 CSS Modules 的 _mask 类名直接清掉底色。
 				'html[data-dsh-aether] [class*="_mask"],',
@@ -1210,22 +1486,6 @@ window.__ModuleLoader__.load({
 				'html[data-dsh-aether] [class*="_scrim"],',
 				'html[data-dsh-aether] [class*="_backdrop"] {',
 				'  background-color: rgba(0, 0, 0, 0) !important;',
-				'}',
-				'html[data-dsh-aether] [data-aether-input-host] {',
-				'  background-color: var(--aether-chrome-fill) !important;',
-				'}',
-				// Windows 标题栏（「应用/编辑」那行）：
-				// 侧栏 = frame + sidebarCol 两层半透明（≈0.75），标题栏只有 frame 一层（0.5）会显得浅。
-				// 这里恢复 ::before 的一层，并额外叠 --aether-titlebar-extra（默认 0.08）的暗色，
-				// 让标题栏与侧栏同档、略深一点点。
-				'html[data-windows-titlebar][data-dsh-aether] [data-aether-frame]::before {',
-				'  background: linear-gradient(rgba(0, 0, 0, var(--aether-titlebar-extra, .08)), rgba(0, 0, 0, var(--aether-titlebar-extra, .08))), var(--aether-chrome-fill) !important;',
-				'}',
-				// 顶栏（Windows 标题栏带「应用/编辑」那行）：frame 背景已由 sidebar-fill 控制，
-				// 这里把 sidebar-fill 直接绑到同一个 chrome 变量
-				'html[data-dsh-aether] body {',
-				'  --dsw-specific-sidebar-fill: var(--aether-chrome-fill) !important;',
-				'  --dsw-specific-sidebar-glass-fill: var(--aether-chrome-fill) !important;',
 				'}',
 				// 壁纸层：双缓冲淡入淡出（防闪烁）
 				'#dsh-aether-stage > .aether-wall { position:absolute; inset:0; z-index:1; opacity:0; transition:opacity var(--aether-transition, 420ms) ease; will-change:opacity; }',
@@ -1537,8 +1797,10 @@ window.__ModuleLoader__.load({
 		}
 
 		// ── 金丝雀：先健康过一轮才武装 ──────────────────────────────────────────
-		// 每秒 reconcile 一次，连续 N 次（默认 40 ≈ 10 秒）关键锚点全丢，就判定宿主
-		// DOM 契约已不在：撤掉自己注入的 CSS 与 DOM，交还官方原生布局，绝不硬撑。
+		// 每 2 秒 reconcile 一次；只要有一个关键锚点连续 N 次（默认 40 ≈ 80 秒）缺失，
+		// 就判定宿主 DOM 契约已变：撤掉自己注入的 CSS 与 DOM，交还官方原生布局，绝不硬撑。
+		// 旧实现要求 #root / body / html[data-platform] "三者同时"丢失，而 body 永远存在，
+		// 等于这条保护永不触发 —— 现在改为"任一关键锚点连续缺失"。
 		function canaryAnchors() {
 			var anchors = {
 				root: Boolean(document.getElementById('root')),
@@ -1557,8 +1819,8 @@ window.__ModuleLoader__.load({
 				platform: !anchors.platform,
 			};
 			A.canary.lost = lost;
-			var allLost = !anchors.root && !anchors.body && !anchors.platform;
-			if (allLost) {
+			var anyLost = lost.root || lost.body || lost.platform;
+			if (anyLost) {
 				A.canary.strikes += 1;
 			} else {
 				A.canary.strikes = 0;
@@ -1571,6 +1833,7 @@ window.__ModuleLoader__.load({
 		function safeExit() {
 			if (A.canary.disabled) return;
 			A.canary.disabled = true;
+			A.canary.armed = false;
 			pushLog('error', '宿主 DOM 契约漂移：撤离注入，交还原生布局', { strikes: A.canary.strikes });
 			try { removeStyle(); } catch (error) { /* ignore */ }
 			try { removeStage(); } catch (error) { /* ignore */ }
@@ -1580,18 +1843,15 @@ window.__ModuleLoader__.load({
 				clearInputHosts();
 			} catch (error) { /* ignore */ }
 			notify();
-			if (A.canary.timer) {
-				try { clearInterval(A.canary.timer); } catch (error) { /* ignore */ }
-				A.canary.timer = null;
-			}
 			reportDiag('safe-exit');
 		}
 
 		function startCanary() {
-			if (A.canary.timer) return;
-			A.canary.timer = true;
+			// idleEvery / idleStop 是真正的调度器；这里只记一个"是否已武装"的布尔，
+			// 绝不把布尔值当定时器句柄去 clearInterval（旧实现的逻辑错乱）。
+			if (A.canary.armed) return;
+			A.canary.armed = true;
 			idleEvery(2, canaryTick);
-			if (A.canary.timer && typeof A.canary.timer.unref === 'function') A.canary.timer.unref();
 		}
 
 		// ── 诊断上报 ─────────────────────────────────────────────────────────────
@@ -1708,6 +1968,20 @@ window.__ModuleLoader__.load({
 				var index = A.subscribers.indexOf(fn);
 				if (index !== -1) A.subscribers.splice(index, 1);
 			};
+		}
+
+		/** 显示一条面板提示；ms > 0 时自动消失。 */
+		function toast(text, ms) {
+			A.toast = String(text || '');
+			notify();
+			if (ms && ms > 0) {
+				var expected = A.toast;
+				setTimeout(function () {
+					if (A.toast !== expected) return;   // 期间被新提示替换了，别清掉
+					A.toast = '';
+					notify();
+				}, ms);
+			}
 		}
 
 		function notify() {
@@ -1950,8 +2224,11 @@ window.__ModuleLoader__.load({
 						try { node.remove(); } catch (error) { /* ignore */ }
 					});
 				} catch (error) { /* ignore */ }
+				// 头像停用后还要抹掉状态行标记，否则 DOM 上留着 data-aether-status
+				try { clearAvatarMarks(); } catch (error) { /* ignore */ }
 				try { clearTopbarMark(); } catch (error) { /* ignore */ }
 				try { clearMaskMarks(); } catch (error) { /* ignore */ }
+				try { scanStop(); } catch (error) { /* ignore */ }
 				try {
 					document.documentElement.removeAttribute('data-dsh-aether');
 					document.documentElement.removeAttribute('data-dsh-aether-pixel');
@@ -2074,7 +2351,7 @@ window.__ModuleLoader__.load({
 					}
 					// 分区背景图：选了壁纸库里的图片就挂上，否则清掉
 					if (item && item.image) {
-						var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(item.image) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
+						var url = mediaUrl(item.image);
 						setVar(imgName, 'url("' + url + '")');
 					} else {
 						clearVar(imgName);
@@ -2185,13 +2462,18 @@ window.__ModuleLoader__.load({
 			} catch (error) { /* ignore */ }
 
 			try {
-				// 用户气泡：默认官方，只有显式关掉 official 才接管
+				// 用户气泡：默认官方样式（宿主主题自己决定底色）。
+				// 只有两种情况才接管：① 显式关掉 bubble.official；② 开了分区背景里的"气泡"。
 				var bubble = A.cfg.bubble || { official: true, color: '#dbe7ff' };
+				var bubbleRegion = (A.cfg.backgrounds && A.cfg.backgrounds.bubble) || null;
+				var bubbleRegionOn = Boolean(bubbleRegion && bubbleRegion.enabled === true);
 				if (bubble.official === false) {
-					document.documentElement.setAttribute('data-aether-bubble', 'custom');
 					var bubbleColor = parseColor(bubble.color || '#dbe7ff');
 					setVar('--aether-bubble-fill', rgba(bubbleColor, clamp(bubble.opacity === undefined ? 0.62 : bubble.opacity, 0.1, 1)));
 					setVar('--aether-bubble-highlight', rgba(shiftColor(bubbleColor, 0.15), 0.8));
+				}
+				if (bubble.official === false || bubbleRegionOn) {
+					document.documentElement.setAttribute('data-aether-bubble', 'custom');
 				} else {
 					document.documentElement.removeAttribute('data-aether-bubble');
 				}
@@ -2281,14 +2563,16 @@ window.__ModuleLoader__.load({
 				setVar('--aether-bg-blur', '0px');
 			}
 
+			// 尾部不再做"全量 DOM 扫描"：applyAppearance 由滑杆每帧触发（rAF 合并），
+			// 而 scanBubbleDeco / scanAvatars 是 O(全文档) 的 querySelectorAll，
+			// 放在这里等于拖动滑杆时每秒 120 次全量扫描 —— "拖滑杆卡顿"的直接原因。
+			// 它们的输入只有与配置或 DOM，改为：配置变更时由 scheduleScans() 250ms 防抖单次触发，
+			// DOM 变更由 watchDom 总线触发。
 			try { syncFx(); } catch (error) { /* ignore */ }
 			try { syncWhale(); } catch (error) { /* ignore */ }
 			try { syncGlowPress(); } catch (error) { /* ignore */ }
 			try { syncMeteor(); } catch (error) { /* ignore */ }
-			try { syncFx(); } catch (error) { /* ignore */ }
-			try { syncWhale(); } catch (error) { /* ignore */ }
-			try { scanBubbleDeco(); } catch (error) { /* ignore */ }
-			try { scanAvatars(); } catch (error) { /* ignore */ }
+			try { scheduleScans(); } catch (error) { /* ignore */ }
 
 			pushLog('info', '外观已应用', {
 				reason: reason,
@@ -2361,7 +2645,7 @@ window.__ModuleLoader__.load({
 			if (!config) return '';
 			if (config.mode === 'image') {
 				if (config.source === 'file' && config.id) {
-					return A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(config.id) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
+					return mediaUrl(config.id);
 				}
 				return config.presetUrl || '';
 			}
@@ -2374,10 +2658,30 @@ window.__ModuleLoader__.load({
 		// 视频用原生流式硬解（muted + playsinline + preload=metadata），200MB 文件
 		// 不进内存、不阻塞主线程。
 
+		/**
+		 * 彻底释放一层壁纸：先让 <video> 停止解码，再摘节点。
+		 * Chromium 对"已脱离文档"的媒体元素不保证立刻挂起解码，4K 视频壁纸会持续吃 GPU/内存。
+		 */
+		function disposeWallLayer(layer) {
+			try {
+				var media = layer && layer.querySelector ? layer.querySelector('video') : null;
+				if (media) {
+					try { media.pause(); } catch (error) { /* ignore */ }
+					try { media.removeAttribute('src'); } catch (error) { /* ignore */ }
+					try { media.load(); } catch (error) { /* ignore */ }
+				}
+			} catch (error) { /* ignore */ }
+			try { layer.remove(); } catch (error) { /* ignore */ }
+		}
+
 		function clearWallpaperLayers() {
-			A.layerEls.forEach(function (layer) {
-				try { layer.remove(); } catch (error) { /* ignore */ }
-			});
+			if (A.videoEl) {
+				try { A.videoEl.pause(); } catch (error) { /* ignore */ }
+				try { A.videoEl.removeAttribute('src'); } catch (error) { /* ignore */ }
+				try { A.videoEl.load(); } catch (error) { /* ignore */ }
+				A.videoEl = null;
+			}
+			A.layerEls.forEach(disposeWallLayer);
 			A.layerEls = [];
 			A.currentWallKey = '';
 			if (A.rotationTimer) {
@@ -2460,12 +2764,15 @@ window.__ModuleLoader__.load({
 			if (A.currentWallKey === key) return;
 			var oldLayers = A.layerEls.slice();
 			var layer = buildWallLayer(kind, source);
+			// 切走视频壁纸时清掉陈旧引用：否则 ensureVideoPlaying() 还会对已脱离文档的
+			// <video> 调 play()，并在诊断里报"已暂停"的假象。
+			if (kind !== 'video') A.videoEl = null;
 			stage.appendChild(layer);
 			var reduced = shouldReduceMotion();
 			if (reduced) {
 				layer.style.transition = 'none';
 				layer.classList.add('is-on');
-				oldLayers.forEach(function (old) { try { old.remove(); } catch (error) { /* ignore */ } });
+				oldLayers.forEach(disposeWallLayer);
 				A.layerEls = [layer];
 				A.currentWallKey = key;
 				return;
@@ -2475,13 +2782,13 @@ window.__ModuleLoader__.load({
 				try { layer.classList.add('is-on'); } catch (error) { /* ignore */ }
 			});
 			var cleanup = setTimeout(function () {
-				oldLayers.forEach(function (old) { try { old.remove(); } catch (error) { /* ignore */ } });
+				oldLayers.forEach(disposeWallLayer);
 			}, 900);
 			// 旧层保持到新层过渡完成（transitionend 是加分项，setTimeout 是兜底）
 			layer.addEventListener('transitionend', function handler() {
 				layer.removeEventListener('transitionend', handler);
 				if (cleanup) clearTimeout(cleanup);
-				oldLayers.forEach(function (old) { try { old.remove(); } catch (error) { /* ignore */ } });
+				oldLayers.forEach(disposeWallLayer);
 			});
 			A.layerEls = [layer];
 			A.currentWallKey = key;
@@ -2524,7 +2831,7 @@ window.__ModuleLoader__.load({
 			var source = kind === 'css'
 				? (config.cssPreset || 'aurora')
 				: (config.source === 'file' && config.id
-					? A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(config.id) + (A.token ? '&token=' + encodeURIComponent(A.token) : '')
+					? mediaUrl(config.id)
 					: (config.presetUrl || ''));
 			if (!source) {
 				clearWallpaperLayers();
@@ -2660,63 +2967,6 @@ window.__ModuleLoader__.load({
 				return subscribe(function () { set(function (value) { return value + 1; }); });
 			}, []);
 			return state[0];
-		}
-
-		function parseUsage(raw) {
-			try {
-				var file = raw && raw['.dshw-usage.json'];
-				if (!file || typeof file !== 'object') return null;
-				var events = Array.isArray(file.events) ? file.events : [];
-				var last = events.length ? events[events.length - 1] : null;
-				return {
-					currency: 'CNY',
-					balance: Number.isFinite(Number(file.lastBalance)) ? Number(file.lastBalance) : null,
-					today: Number.isFinite(Number(file.todayUsage)) ? Number(file.todayUsage) : null,
-					dayStart: Number.isFinite(Number(file.dayStart)) ? Number(file.dayStart) : null,
-					lastTurn: last && Number.isFinite(Number(last.cost)) ? { cost: Number(last.cost), tokens: Number(last.tokens) || 0, model: last.model || '' } : null,
-				};
-			} catch (error) {
-				return null;
-			}
-		}
-
-		function fmtMoney(value) {
-			if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
-			return '¥' + Number(value).toFixed(2);
-		}
-
-		function fmtTokens(value) {
-			var n = Number(value) || 0;
-			if (n >= 100000000) return (n / 100000000).toFixed(2) + '亿';
-			if (n >= 10000) return (n / 10000).toFixed(1) + '万';
-			return String(n);
-		}
-
-		// ── 开屏动画：纯 CSS，播完自动卸载 ─────────────────────────────────────
-		function BootSplash() {
-			var state = react.useState(true);
-			var visible = state[0];
-			var setVisible = state[1];
-			var config = A.cfg && A.cfg.boot ? A.cfg.boot : { durationMs: 2200 };
-			react.useEffect(function () {
-				if (!moduleOn('boot')) { setVisible(false); return undefined; }
-				if (config.skipOnReducedMotion !== false && shouldReduceMotion()) { setVisible(false); return undefined; }
-				var duration = clamp(config.durationMs || 2200, 400, 8000);
-				var timer = setTimeout(function () { setVisible(false); }, duration + 120);
-				return function () { clearTimeout(timer); };
-			}, []);
-			if (!visible || !moduleOn('boot') || A.canary.disabled) return null;
-			var duration = clamp(config.durationMs || 2200, 400, 8000);
-			return h('div', {
-				className: 'aeth-boot',
-				style: { '--aether-boot-dur': duration + 'ms' },
-				'aria-hidden': 'true',
-			},
-				h('div', { style: { display: 'grid', justifyItems: 'center' } },
-					h('div', { className: 'aeth-boot-mark' }),
-					h('div', { className: 'aeth-boot-text' }, t('boot.title')),
-				),
-			);
 		}
 
 		// ── 诊断浮层：屏幕内直接看锚点/金丝雀，不用开 DevTools ─────────────────
@@ -2860,6 +3110,11 @@ window.__ModuleLoader__.load({
 			METEOR.last = { x: x, y: y, t: now };
 		}
 
+		/** 具名 resize 处理函数：匿名函数无法 removeEventListener，会随启停叠加。 */
+		function meteorOnResize() {
+			if (METEOR.running) meteorResize();
+		}
+
 		function startMeteor() {
 			if (METEOR.running) return;
 			if (!meteorEnabled()) return;
@@ -2879,7 +3134,7 @@ window.__ModuleLoader__.load({
 			if (!METEOR.bound) {
 				METEOR.bound = true;
 				window.addEventListener('mousemove', meteorOnMove, { passive: true });
-				window.addEventListener('resize', function () { if (METEOR.running) meteorResize(); }, { passive: true });
+				window.addEventListener('resize', meteorOnResize, { passive: true });
 			}
 			METEOR.running = true;
 			METEOR.raf = requestAnimationFrame(meteorTick);
@@ -2894,6 +3149,8 @@ window.__ModuleLoader__.load({
 			}
 			if (METEOR.bound) {
 				try { window.removeEventListener('mousemove', meteorOnMove); } catch (error) { /* ignore */ }
+				// resize 监听必须一起摘掉：旧实现只解 mousemove，反复启停后监听器会叠加
+				try { window.removeEventListener('resize', meteorOnResize); } catch (error) { /* ignore */ }
 				METEOR.bound = false;
 			}
 			if (METEOR.canvas) {
@@ -2913,7 +3170,6 @@ window.__ModuleLoader__.load({
 		}
 
 		// 保留组件（overlay 里不再使用，仅为兼容旧引用）
-		function MeteorCursor() { return null; }
 
 		// ── 56-particles.js ─────────────────────────────────────────────────
 		// ── critters：背景小鱼 / 气泡 / 浮游点（参考 dsh-client-ui-aqua 的方案） ──
@@ -2926,7 +3182,7 @@ window.__ModuleLoader__.load({
 		// 参数风格对齐 Aqua：低透明度（0.22 / 0.55）、蓝灰色（#7ea4df / #a9c6ef）、
 		// 长时间周期（9~19s）+ 负延迟让画面一开始就是"已经在动"的状态。
 
-		var CRITTERS = { host: null, built: 0 };
+		var CRITTERS = { host: null, built: 0, markup: '' };
 
 		/** 简笔鱼剪影（自己画的路径，viewBox 0 0 24 16，尾巴朝右）。 */
 			// DeepSeek 品牌鱼剪影（Figma 提取版，与 dsh-client-ui-aqua 同一图形；品牌素材，MIT 代码许可不覆盖该图形）
@@ -3027,14 +3283,14 @@ window.__ModuleLoader__.load({
 				startFx();
 				return;
 			}
-			var host = crittersHost();
-			host.innerHTML = crittersMarkup();
-			CRITTERS.built = host.childElementCount;
-		}
-
-		function restartFx() {
-			stopFx();
-			startFx();
+			// 差异比较：markup 没变就不碰 DOM。
+			// 旧实现每次都 innerHTML = markup，等于重建 10 个 SVG 节点并让 CSS 动画从头播放
+			// （视觉上是小鱼/气泡位置"跳一下"），而 applyAppearance 在拖滑杆时每帧都会调到这里。
+			var markup = crittersMarkup();
+			if (markup === CRITTERS.markup && CRITTERS.host.contains(CRITTERS.host.firstElementChild)) return;
+			CRITTERS.host.innerHTML = markup;
+			CRITTERS.markup = markup;
+			CRITTERS.built = CRITTERS.host.childElementCount;
 		}
 
 		// ── 57-whale.js ─────────────────────────────────────────────────────
@@ -3051,6 +3307,10 @@ window.__ModuleLoader__.load({
 			holder: null, canvas: null, ctx: null, raf: null, last: 0, startedAt: 0,
 			particles: [], width: 0, height: 0, dpr: 1, scale: 1, running: false,
 			mouse: { x: 0, y: 0 }, disposed: false, dark: true, sizePx: 0,
+			// 颜色缓存：把 (r,g,b,alpha) 各量化到 8/8/8/16 档，最多 8192 条定长字符串。
+			// Canvas 的 fillStyle 赋"同一个字符串"几乎零成本，而每帧拼 'rgba(...)' 字符串
+			// 再让它重新解析颜色是 Canvas 里最贵的操作之一（26fps × ~3000 粒子 ≈ 9.4 万次/秒）。
+			styleCache: [],
 		};
 
 		var WHALE_GRID = 60;
@@ -3131,11 +3391,18 @@ window.__ModuleLoader__.load({
 							var phi = Math.random() * Math.PI * 2;
 							var theta = Math.acos(2 * Math.random() - 1);
 							var rad = 3 * (0.4 + 0.6 * Math.random());
+							var index = WHALE.particles.length;
 							WHALE.particles.push({
 								x: x, y: y, opacity: a, edge: edge / 8,
 								sx: Math.sin(theta) * Math.cos(phi) * rad,
 								sy: Math.sin(theta) * Math.sin(phi) * rad,
 								sz: Math.cos(theta) * rad * 0.5,
+								// 预计算：每帧只做乘法/加法，不再调用 whaleHash（各含一次 Math.sin）
+								h1: whaleHash(index),
+								h2: whaleHash(index * 1.37 + 7),
+								ph53: index * 0.53,
+								ph71: index * 0.71,
+								ph37: index * 0.37,
 							});
 						}
 					}
@@ -3178,10 +3445,10 @@ window.__ModuleLoader__.load({
 			for (var i = 0; i < WHALE.particles.length; i += 1) {
 				var p = WHALE.particles[i];
 				var loose = WHALE_LOOSE * (0.25 + 0.75 * p.edge) * assembly;
-				var px = p.x + whaleHash(i) * 0.05 * loose;
-				var py = p.y + whaleHash(i * 1.37 + 7) * 0.05 * loose;
-				px += Math.sin(time * 0.5 + i * 0.53) * 0.06 * loose;
-				py += Math.cos(time * 0.42 + i * 0.71) * 0.06 * loose;
+				var px = p.x + p.h1 * 0.05 * loose;
+				var py = p.y + p.h2 * 0.05 * loose;
+				px += Math.sin(time * 0.5 + p.ph53) * 0.06 * loose;
+				py += Math.cos(time * 0.42 + p.ph71) * 0.06 * loose;
 				var tail = whaleSmoothstep(0.5, 4.5, p.x) * WHALE_LOOSE * assembly;
 				py += Math.sin(time * 1.1 - p.x * 0.7) * 0.1 * tail;
 				px += Math.cos(time * 0.9 - p.x * 0.55) * 0.06 * tail;
@@ -3195,7 +3462,7 @@ window.__ModuleLoader__.load({
 					if (dist < WHALE_MOUSE_RADIUS && dist > 0.001) {
 						var t = 1 - dist / WHALE_MOUSE_RADIUS;
 						var force = t * t * t * mouseEffect * WHALE_MOUSE_STRENGTH;
-						var angle = Math.sin(i * 0.37 + time * 0.5) * WHALE_MOUSE_DISTORT;
+						var angle = Math.sin(p.ph37 + time * 0.5) * WHALE_MOUSE_DISTORT;
 						var ca = Math.cos(angle);
 						var sa = Math.sin(angle);
 						var ux = mx / dist;
@@ -3221,7 +3488,18 @@ window.__ModuleLoader__.load({
 				var g = Math.min(255, Math.round((bg * assembly + glow * 0.3) * vLight * 255));
 				var b = Math.min(255, Math.round((bb * assembly + glow * 0.5) * vLight * 255));
 				if (alpha <= 0.004) continue;
-				ctx.fillStyle = 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha.toFixed(3) + ')';
+				// 量化取缓存：颜色分量 8 档（步长 32）+ alpha 16 档，1~2px 粒子上不可分辨
+				var rq = (r >> 5) & 7;
+				var gq = (g >> 5) & 7;
+				var bq = (b >> 5) & 7;
+				var aq = alpha >= 1 ? 15 : (alpha * 15) | 0;
+				var index = ((((rq << 3) | gq) << 3 | bq) << 4) | aq;
+				var style = WHALE.styleCache[index];
+				if (style === undefined) {
+					style = 'rgba(' + ((rq << 5) + 16) + ',' + ((gq << 5) + 16) + ',' + ((bq << 5) + 16) + ',' + (((aq + 0.5) / 15).toFixed(3)) + ')';
+					WHALE.styleCache[index] = style;
+				}
+				ctx.fillStyle = style;
 				var sx = WHALE.width / 2 + px * WHALE.scale - size / 2;
 				var sy = WHALE.height / 2 - (py + breathe) * WHALE.scale - size / 2;
 				ctx.fillRect(sx, sy, size, size);
@@ -3358,7 +3636,7 @@ window.__ModuleLoader__.load({
 		var GLOW_RADIUS = 180;
 		var GLOW_COLOR = 'rgba(90, 215, 255, 0.17)';
 
-		var PRESS = { raf: null, current: null, running: false, timers: new WeakMap() };
+		var PRESS = { raf: null, current: null, running: false, timers: new WeakMap(), rect: null, rectPane: null, rectAt: 0 };
 		var TILT_MAX = 0.0175; // Aqua 原值：≈1°
 		var TILT_PERSPECTIVE = 800;
 		var SETTLE_MS = 240;
@@ -3421,9 +3699,28 @@ window.__ModuleLoader__.load({
 		}
 
 		// ── press：悬停面板的轻微 3D 倾斜 ────────────────────────────────────
+		var PRESS_MOTION = { reduce: false, hooked: false };
+
+		/** prefers-reduced-motion 只在 change 事件里读一次；每帧新建 MediaQueryList 太贵。 */
+		function pressMotionReduce() {
+			if (!PRESS_MOTION.hooked) {
+				PRESS_MOTION.hooked = true;
+				try {
+					var media = window.matchMedia('(prefers-reduced-motion: reduce)');
+					PRESS_MOTION.reduce = Boolean(media.matches);
+					if (typeof media.addEventListener === 'function') {
+						media.addEventListener('change', function (event) { PRESS_MOTION.reduce = Boolean(event.matches); });
+					}
+				} catch (error) {
+					PRESS_MOTION.reduce = false;
+				}
+			}
+			return PRESS_MOTION.reduce;
+		}
+
 		function pressTiltable(pane) {
 			if (!pane) return false;
-			if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+			if (pressMotionReduce()) return false;
 			// Aqua 规则：侧栏里打开 dialog 时不做 tilt
 			if (pressIsSidebar(pane) && document.querySelector('[role="dialog"]') !== null) return false;
 			return true;
@@ -3449,32 +3746,6 @@ window.__ModuleLoader__.load({
 			} catch (error) { /* ignore */ }
 		}
 
-		/** 兜底：向上找第一个「fixed/absolute 且尺寸像对话框」的祖先（DSH 的对话框是 portal 到 body 的容器）。 */
-		function pressFindFloatingPane(target) {
-			try {
-				var node = target;
-				var depth = 0;
-				while (node && node !== document.body && depth < 10) {
-					var style = window.getComputedStyle(node);
-					// 排除主面板（含设置页/图片预览/插件列表）、dialog、插件自己的面板
-					// 排除「祖先链里有全局面板/插件面板/dialog」的节点：
-					// 设置页内部元素此前会被误判成浮层，导致设置页被下压
-					if (node.closest && node.closest('[data-global-panel], .aeth-root, [role="dialog"], [aria-modal="true"]')) {
-						node = node.parentElement;
-						depth += 1;
-						continue;
-					}
-					if ((style.position === 'fixed' || style.position === 'absolute')
-						&& node.offsetWidth > 360 && node.offsetHeight > 240) {
-						return node;
-					}
-					node = node.parentElement;
-					depth += 1;
-				}
-			} catch (error) { /* ignore */ }
-			return null;
-		}
-
 		function pressFindPane(target) {
 			if (!target) return null;
 			// 先找「内层浮层」：对话框/弹窗通常是 fixed/absolute 的大容器，
@@ -3482,22 +3753,6 @@ window.__ModuleLoader__.load({
 			// 不再做「浮动浮层兜底」：设置对话框/设置页都不该被下压
 			if (typeof target.closest !== 'function') return null;
 			return target.closest(PRESS_PANE_SELECTOR);
-		}
-
-		/** 侧栏里是否有 position:fixed 后代（有的话不能 transform，否则会被挤出原位）。 */
-		function pressHasFixedChild(pane) {
-			try {
-				var nodes = pane.children;
-				for (var i = 0; i < nodes.length && i < 12; i += 1) {
-					var style = window.getComputedStyle(nodes[i]);
-					if (style.position === 'fixed') return true;
-					var inner = nodes[i].children;
-					for (var j = 0; j < inner.length && j < 12; j += 1) {
-						if (window.getComputedStyle(inner[j]).position === 'fixed') return true;
-					}
-				}
-			} catch (error) { /* ignore */ }
-			return false;
 		}
 
 		function pressNeutral(pane) {
@@ -3531,8 +3786,16 @@ window.__ModuleLoader__.load({
 				pressSoftDown(pane, true);
 				return;
 			}
-			var rect = pane.getBoundingClientRect();
-			if (rect.width === 0 || rect.height === 0) return;
+			// rect 缓存：只在"换了 pane"或 6 帧内没取过时重新测量。
+			// 旧实现每次 pointermove（高刷鼠标 1000Hz）都 getBoundingClientRect()，强制同步布局。
+			var now = Date.now();
+			if (PRESS.rectPane !== pane || !PRESS.rect || now - PRESS.rectAt > 500) {
+				PRESS.rect = pane.getBoundingClientRect();
+				PRESS.rectPane = pane;
+				PRESS.rectAt = now;
+			}
+			var rect = PRESS.rect;
+			if (!rect || rect.width === 0 || rect.height === 0) return;
 			var rx = ((GLOW.x - rect.left) / rect.width) * 2 - 1;
 			var ry = ((GLOW.y - rect.top) / rect.height) * 2 - 1;
 			rx = Math.max(-1, Math.min(1, rx));
@@ -3558,13 +3821,20 @@ window.__ModuleLoader__.load({
 			if (!PRESS.running) return;
 			var target = event.target;
 			var pane = pressFindPane(target);
-			if (pane) {
-				A.pressDebug = {
-					tag: pane.tagName ? pane.tagName.toLowerCase() : '?',
-					cls: String(pane.className || '').slice(0, 120),
-					role: pane.getAttribute ? (pane.getAttribute('role') || '') : '',
-					position: (function () { try { return window.getComputedStyle(pane).position; } catch (error) { return ''; } })(),
-				};
+			// 调试信息只在"目标变化"时更新，且 getComputedStyle 100ms 节流。
+			// 旧实现鼠标每移动一次就无条件调一次 getComputedStyle —— 强制样式重算。
+			if (pane && pane !== PRESS.current) {
+				var nowMs = Date.now();
+				A.pressDebug = A.pressDebug || {};
+				A.pressDebug.tag = pane.tagName ? pane.tagName.toLowerCase() : '?';
+				A.pressDebug.cls = String(pane.className || '').slice(0, 120);
+				A.pressDebug.role = pane.getAttribute ? (pane.getAttribute('role') || '') : '';
+				if (!A.pressDebug.at || nowMs - A.pressDebug.at > 100) {
+					A.pressDebug.position = (function () {
+						try { return window.getComputedStyle(pane).position; } catch (error) { return ''; }
+					})();
+					A.pressDebug.at = nowMs;
+				}
 			}
 			if (pane !== PRESS.current) {
 				if (PRESS.current) pressNeutral(PRESS.current);
@@ -3618,12 +3888,15 @@ window.__ModuleLoader__.load({
 
 		var PANEL_TABS = ['appearance', 'wallpaper', 'glass', 'pixel', 'style', 'modules', 'pack', 'diag'];
 
-		/** 图库选择弹层：从壁纸库的图片里挑一张（比手填 id 友好）。 */
-		function GalleryPicker() {
-			var state = react.useState(null);
-			var request = state[0];
-			var setRequest = state[1];
-			A.galleryPicker = setRequest;
+		/**
+		 * 图库选择弹层：从壁纸库的图片里挑一张（比手填 id 友好）。
+		 * 纯受控组件：请求对象与关闭回调都由 AetherPanel 持有。
+		 * （旧实现在渲染期直接读 useState 并顺手给 A.galleryPicker 赋值，
+		 *   既是渲染期副作用，也会在切页后留下陈旧 setter。）
+		 */
+		function GalleryPicker(props) {
+			var request = props.request;
+			var onClose = props.onClose;
 			if (!request) return null;
 			var images = (A.host.wallpapers || []).filter(function (w) { return !w.kind || w.kind === 'image'; });
 			return h('div', {
@@ -3631,11 +3904,11 @@ window.__ModuleLoader__.load({
 					position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(10,12,16,.72)',
 					backdropFilter: 'blur(6px)', display: 'flex', flexDirection: 'column', padding: '12px', gap: '10px',
 				},
-				onClick: function () { setRequest(null); },
+				onClick: function () { onClose(); },
 			},
 				h('div', { className: 'aeth-row', style: { justifyContent: 'space-between' } },
 					h('b', null, request.title || '从图库选择'),
-					h('button', { type: 'button', className: 'aeth-btn', onClick: function () { setRequest(null); } }, '关闭'),
+					h('button', { type: 'button', className: 'aeth-btn', onClick: function () { onClose(); } }, '关闭'),
 				),
 				images.length
 					? h('div', {
@@ -3644,14 +3917,14 @@ window.__ModuleLoader__.load({
 						onClick: function (event) { event.stopPropagation(); },
 					},
 						images.map(function (item) {
-							var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(item.id) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
+							var url = mediaUrl(item.id);
 							return h('div', {
 								key: item.id,
 								className: 'aeth-wall',
 								style: { cursor: 'pointer' },
 								onClick: function () {
 									try { request.onPick(item.id); } catch (error) { /* ignore */ }
-									setRequest(null);
+									onClose();
 								},
 							},
 								h('img', { src: url, alt: '' }),
@@ -3733,12 +4006,23 @@ window.__ModuleLoader__.load({
 			var statusState = react.useState('');
 			var status = statusState[0];
 			var setStatus = statusState[1];
-			var saveTimer = react.useRef(null);
 			var importRef = react.useRef(null);
 			var uploadRef = react.useRef(null);
 			var uploadCategoryState = react.useState('custom');
 			var uploadCategory = uploadCategoryState[0];
 			var setUploadCategory = uploadCategoryState[1];
+			var galleryState = react.useState(null);
+			var galleryRequest = galleryState[0];
+			var setGalleryRequest = galleryState[1];
+
+			// 把"请求打开图库"的入口发布给其他卡片（它们只是纯渲染函数，拿不到本地 state）。
+			// 必须在 effect 里做：渲染期赋值是副作用，且卸载后会留下陈旧 setter。
+			react.useEffect(function () {
+				A.galleryPicker = setGalleryRequest;
+				return function () {
+					if (A.galleryPicker === setGalleryRequest) A.galleryPicker = null;
+				};
+			}, []);
 
 			var cfg = A.cfg;
 			var hostOk = A.host.ok;
@@ -3750,14 +4034,17 @@ window.__ModuleLoader__.load({
 				if (!options || options.wallpaper !== false) {
 					try { applyWallpaper('panel'); } catch (error) { /* 无壁纸模块时忽略 */ }
 				}
-				if (saveTimer.current) clearTimeout(saveTimer.current);
-				saveTimer.current = setTimeout(function () {
-					saveConfig('panel').then(function () {
-						setStatus(t('state.saved'));
-						setTimeout(function () { setStatus(''); }, 1200);
-					}).catch(function () { setStatus(t('state.error')); });
-				}, 600);
+				// 统一走 600ms 防抖 + 单飞行落盘（见 20-core 的 scheduleSave）
+				scheduleSave('panel');
 			}
+
+			// 保存状态回显（成功/失败）由 SAVE_BUS 统一广播，面板与设置页共用
+			react.useEffect(function () {
+				return onSaveState(function (state) {
+					setStatus(state === 'saved' ? t('state.saved') : t('state.error'));
+					if (state === 'saved') setTimeout(function () { setStatus(''); }, 1200);
+				});
+			}, []);
 
 			function doReset() {
 				if (!window.confirm(t('action.resetConfirm'))) return;
@@ -3792,15 +4079,23 @@ window.__ModuleLoader__.load({
 
 			function importPack(file) {
 				if (!file) return;
+				if (!window.confirm(t('pack.confirm'))) return;
 				var reader = new FileReader();
 				reader.onload = function () {
 					try {
 						var parsed = JSON.parse(String(reader.result));
 						var appearance = parsed && parsed.appearance ? parsed.appearance : parsed;
-						A.cfg = mergeConfig(appearance, A.defaults || defaultConfigFallback());
+						var check = sanitizeThemePack(appearance);
+						if (!check.ok) {
+							setStatus(t('pack.rejected'));
+							pushLog('warn', '主题包被拒绝', { reason: check.reason });
+							return;
+						}
+						A.cfg = mergeConfig(check.value, A.defaults || defaultConfigFallback());
 						applyAppearance('import');
 						applyWallpaper('import');
-						saveConfig('import').then(function () { setStatus(t('state.saved')); });
+						scheduleSave('import');
+						setStatus(t('state.saved'));
 					} catch (error) {
 						setStatus(t('state.error'));
 					}
@@ -3823,26 +4118,27 @@ window.__ModuleLoader__.load({
 				});
 			}
 
+			function downloadJson(text, filename) {
+				// 统一出口：任何分支都必须 revokeObjectURL + 摘掉 <a>，否则每次都泄漏一个 Blob
+				var blob = new Blob([text], { type: 'application/json' });
+				var url = URL.createObjectURL(blob);
+				var link = document.createElement('a');
+				link.href = url;
+				link.download = filename;
+				document.body.appendChild(link);
+				try { link.click(); } catch (error) { /* ignore */ }
+				setTimeout(function () {
+					try { link.remove(); } catch (error) { /* ignore */ }
+					try { URL.revokeObjectURL(url); } catch (error) { /* ignore */ }
+				}, 400);
+			}
+
 			function exportDiag() {
 				try {
 					apiFetch('/api/diag.json').then(function (text) {
-						var blob = new Blob([typeof text === 'string' ? text : JSON.stringify(text, null, 2)], { type: 'application/json' });
-						var url = URL.createObjectURL(blob);
-						var link = document.createElement('a');
-						link.href = url;
-						link.download = 'diag.json';
-						document.body.appendChild(link);
-						link.click();
-						setTimeout(function () { try { link.remove(); URL.revokeObjectURL(url); } catch (error) { /* ignore */ } }, 400);
+						downloadJson(typeof text === 'string' ? text : JSON.stringify(text, null, 2), 'diag.json');
 					}).catch(function () {
-						var payload = reportDiag('manual-export');
-						var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-						var url = URL.createObjectURL(blob);
-						var link = document.createElement('a');
-						link.href = url;
-						link.download = 'diag.json';
-						document.body.appendChild(link);
-						link.click();
+						downloadJson(JSON.stringify(reportDiag('manual-export'), null, 2), 'diag.json');
 					});
 				} catch (error) { /* ignore */ }
 			}
@@ -3887,7 +4183,7 @@ window.__ModuleLoader__.load({
 				tab === 'glass' ? GlassTab(cfg, mutate) : null,
 				tab === 'pixel' ? PixelTab(cfg, mutate) : null,
 				tab === 'style' ? StyleTab(cfg, mutate) : null,
-				GalleryPicker(),
+				h(GalleryPicker, { request: galleryRequest, onClose: function () { setGalleryRequest(null); } }),
 				tab === 'modules' ? ModulesTab(cfg, mutate) : null,
 				tab === 'pack'
 					? h('div', { className: 'aeth-card' },
@@ -3967,6 +4263,78 @@ window.__ModuleLoader__.load({
 			{ value: 'KaiTi', label: '楷体' },
 		];
 
+			/** 开机动画片库卡片。hook 必须落在组件体内 —— 旧实现写成 IIFE 在 AdvancedCards 渲染期调用，
+			 *  等于把 hook 塞进 AetherPanel 的 hook 链；切标签页时 hook 数量变化会直接抛
+			 *  "Rendered fewer hooks than expected"。 */
+		function BootLibraryCard() {
+			var boot = react.useState(null);
+			var bootData = boot[0];
+			var setBootData = boot[1];
+			var preview = react.useState('');
+			var previewId = preview[0];
+			var setPreviewId = preview[1];
+			react.useEffect(function () {
+				var alive = true;
+				fetch('/dsh-boot-splash-pro/videos.json', { credentials: 'same-origin' })
+					.then(function (res) { return res.json(); })
+					.then(function (json) { if (alive) setBootData(json); })
+					.catch(function () { if (alive) setBootData({ error: true }); });
+				return function () { alive = false; };
+			}, []);
+			return h('div', { className: 'aeth-card' },
+				h('h3', null, '开机动画（dsh-boot-splash-pro）'),
+				h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
+					'触发方式：仅在 DSH 启动时播放一次；打开 / 切换对话不再播放片头。片源与贴合方式由 dsh-boot-splash-pro 管理。'),
+				BootLibraryView(bootData, previewId, setPreviewId),
+			);
+		}
+
+		/** 纯渲染辅助（无 hook）：由 BootLibraryCard 以普通函数调用，与 row()/sliderRow() 同类。 */
+		function BootLibraryView(bootData, previewId, setPreviewId) {
+			if (!bootData) {
+				return h('div', { className: 'aeth-note' }, '正在读取片库…');
+			}
+			if (bootData.error) {
+				return h('div', { className: 'aeth-note' }, '未检测到 dsh-boot-splash-pro（或片库接口不可用）。安装后重启 DSH 即可。');
+			}
+			var videos = Array.isArray(bootData.videos) ? bootData.videos : [];
+			var activeName = '';
+			for (var i = 0; i < videos.length; i += 1) {
+				if (videos[i].id === bootData.activeId) activeName = videos[i].name;
+			}
+			return h('div', null,
+				h('div', { className: 'aeth-row' },
+					h('span', { className: 'aeth-note' }, '当前片头：' + (activeName || bootData.activeId || '未选')),
+					h('span', { className: 'aeth-note' }, '共 ' + videos.length + ' 段'),
+				),
+				videos.length
+					? h('div', { className: 'aeth-grid', style: { marginTop: '10px' } },
+						videos.map(function (item) {
+							var url = '/dsh-boot-splash-pro/media/' + encodeURIComponent(item.id);
+							var isPlaying = previewId === item.id;
+							return h('div', {
+								key: item.id,
+								className: 'aeth-wall' + (bootData.activeId === item.id ? ' on' : ''),
+								style: { cursor: 'pointer' },
+								onClick: function () { setPreviewId(isPlaying ? '' : item.id); },
+							},
+								h('video', {
+									src: url,
+									muted: true,
+									loop: true,
+									playsInline: true,
+									preload: 'metadata',
+									controls: isPlaying,
+									autoPlay: isPlaying,
+								}),
+								h('span', { className: 'aeth-badge' }, (item.name || item.id) + (isPlaying ? ' · 播放中' : ' · 点击预览')),
+							);
+						})
+					)
+					: h('div', { className: 'aeth-note' }, '片库为空：在 dsh-boot-splash-pro 的设置里上传/选择片头。'),
+			);
+		}
+
 		function AdvancedCards(cfg, mutate) {
 			var theme = cfg.theme;
 			var bubble = cfg.bubble || { official: true, color: '#dbe7ff', opacity: 0.62 };
@@ -4004,7 +4372,7 @@ window.__ModuleLoader__.load({
 					h('h3', null, '分区背景（每块可单独配置）'),
 					h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
 						'开启后该区域使用自己的颜色与不透明度；关闭则跟随「外壳暗度」统一值。'),
-					A.bgUploadState ? h('div', { className: 'aeth-note', style: { color: '#9cc0f2', marginBottom: '8px' } }, A.bgUploadState) : null,
+					A.toast ? h('div', { className: 'aeth-note', style: { color: '#9cc0f2', marginBottom: '8px' } }, A.toast) : null,
 					[
 						['sidebar', '侧边栏'],
 						['input', '对话页输入框'],
@@ -4104,7 +4472,7 @@ window.__ModuleLoader__.load({
 										var file = event.target.files && event.target.files[0];
 										try { event.target.value = ''; } catch (error) { /* ignore */ }
 										if (!file) return;
-										A.bgUploadState = '正在上传 ' + String(file.name || '').slice(0, 20) + '…';
+										toast('正在上传 ' + String(file.name || '').slice(0, 20) + '…');
 										notify();
 										pushLog('info', '分区背景图上传开始', { key: key, name: String(file.name || '').slice(0, 60), size: file.size });
 										uploadWallpaper(file, 'region').then(function (uploaded) {
@@ -4113,17 +4481,13 @@ window.__ModuleLoader__.load({
 													draft.backgrounds = draft.backgrounds || {};
 													draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { image: uploaded.id, enabled: true });
 												}, { wallpaper: false });
-												A.bgUploadState = '已应用：' + pair[1];
-												notify();
-												setTimeout(function () { A.bgUploadState = ''; notify(); }, 1800);
+												toast('已应用：' + pair[1], 1800);
 											} catch (error) {
-												A.bgUploadState = '保存失败';
-												notify();
+												toast('保存失败', 2600);
 												pushLog('error', '分区背景图保存失败', { key: key, message: String(error && error.message) });
 											}
 										}).catch(function (error) {
-											A.bgUploadState = '上传失败：' + String(error && error.message || '').slice(0, 40);
-											notify();
+											toast('上传失败：' + String(error && error.message || '').slice(0, 40), 3000);
 											pushLog('error', '分区背景图上传失败', { key: key, message: String(error && error.message) });
 										});
 									},
@@ -4134,69 +4498,7 @@ window.__ModuleLoader__.load({
 						);
 					}),
 				),
-				h('div', { className: 'aeth-card' },
-					h('h3', null, '开机动画（dsh-boot-splash-pro）'),
-					h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
-						'触发方式：仅在 DSH 启动时播放一次；打开 / 切换对话不再播放片头。片源与贴合方式由 dsh-boot-splash-pro 管理。'),
-					(function () {
-						var boot = react.useState(null);
-						var bootData = boot[0];
-						var setBootData = boot[1];
-						var now = react.useState('');
-						var previewId = now[0];
-						var setPreviewId = now[1];
-						react.useEffect(function () {
-							var alive = true;
-							fetch('/dsh-boot-splash-pro/videos.json', { credentials: 'same-origin' })
-								.then(function (res) { return res.json(); })
-								.then(function (json) { if (alive) setBootData(json); })
-								.catch(function () { if (alive) setBootData({ error: true }); });
-							return function () { alive = false; };
-						}, []);
-						if (!bootData) {
-							return h('div', { className: 'aeth-note' }, '正在读取片库…');
-						}
-						if (bootData.error) {
-							return h('div', { className: 'aeth-note' }, '未检测到 dsh-boot-splash-pro（或片库接口不可用）。安装后重启 DSH 即可。');
-						}
-						var videos = Array.isArray(bootData.videos) ? bootData.videos : [];
-						var activeName = '';
-						for (var i = 0; i < videos.length; i += 1) {
-							if (videos[i].id === bootData.activeId) activeName = videos[i].name;
-						}
-						return h('div', null,
-							h('div', { className: 'aeth-row' },
-								h('span', { className: 'aeth-note' }, '当前片头：' + (activeName || bootData.activeId || '未选')),
-								h('span', { className: 'aeth-note' }, '共 ' + videos.length + ' 段'),
-							),
-							videos.length
-								? h('div', { className: 'aeth-grid', style: { marginTop: '10px' } },
-									videos.map(function (item) {
-										var url = '/dsh-boot-splash-pro/media/' + encodeURIComponent(item.id);
-										var isPlaying = previewId === item.id;
-										return h('div', {
-											key: item.id,
-											className: 'aeth-wall' + (bootData.activeId === item.id ? ' on' : ''),
-											style: { cursor: 'pointer' },
-											onClick: function () { setPreviewId(isPlaying ? '' : item.id); },
-										},
-											h('video', {
-												src: url,
-												muted: true,
-												loop: true,
-												playsInline: true,
-												preload: 'metadata',
-												controls: isPlaying,
-												autoPlay: isPlaying,
-											}),
-											h('span', { className: 'aeth-badge' }, (item.name || item.id) + (isPlaying ? ' · 播放中' : ' · 点击预览')),
-										);
-									})
-								)
-								: h('div', { className: 'aeth-note' }, '片库为空：在 dsh-boot-splash-pro 的设置里上传/选择片头。'),
-						);
-					})(),
-				),
+				h(BootLibraryCard, { key: 'boot' }),
 				h('div', { className: 'aeth-card' },
 					h('h3', null, '消息头像'),
 					h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
@@ -4272,7 +4574,7 @@ window.__ModuleLoader__.load({
 									: null,
 								image
 									? h('img', {
-										src: A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(image) + (A.token ? '&token=' + encodeURIComponent(A.token) : ''),
+										src: mediaUrl(image),
 										alt: '',
 										style: { width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover' },
 									})
@@ -4388,7 +4690,7 @@ window.__ModuleLoader__.load({
 								'预览：消息气泡左下角 ',
 								deco.image
 									? h('img', {
-										src: A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(deco.image) + (A.token ? '&token=' + encodeURIComponent(A.token) : ''),
+										src: mediaUrl(deco.image),
 										alt: '',
 										style: { width: '22px', height: '22px', objectFit: 'contain', verticalAlign: 'middle', borderRadius: '5px' },
 									})
@@ -4526,7 +4828,7 @@ window.__ModuleLoader__.load({
 						? h('div', { className: 'aeth-grid', style: { marginTop: '10px' } },
 							files.map(function (item) {
 								var active = wallpaper.source === 'file' && wallpaper.id === item.id;
-								var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(item.id) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
+								var url = mediaUrl(item.id);
 								return h('div', { key: item.id, className: 'aeth-wall' + (active ? ' on' : '') },
 									item.kind === 'video'
 										? h('video', { src: url, muted: true, loop: true, autoPlay: true, playsInline: true, preload: 'metadata' })
@@ -4560,7 +4862,7 @@ window.__ModuleLoader__.load({
 					sliderRow('壁纸亮度（filter，不盖遮罩）', wallpaper.brightness === undefined ? 0.85 : wallpaper.brightness, 0.3, 1.4, 0.05, function (value) {
 						mutate(function (draft) { draft.wallpaper.brightness = value; }, { wallpaper: true });
 					}),
-					sliderRow('压暗遮罩（黑色蒙层，建议留 0）', wallpaper.dim === undefined ? 0 : wallpaper.dim, 0, 1, 0.02, function (value) {
+					sliderRow('压暗遮罩（黑色蒙层）', wallpaper.dim === undefined ? 0.32 : wallpaper.dim, 0, 1, 0.02, function (value) {
 						mutate(function (draft) { draft.wallpaper.dim = value; }, { wallpaper: true });
 					}),
 					h('div', { className: 'aeth-note' }, '亮度直接调壁纸本身（不影响文字）；压暗是额外的一层黑色遮罩，会把文字一起压暗。'),
@@ -4627,7 +4929,10 @@ window.__ModuleLoader__.load({
 					sliderRow(t('label.border'), glass.border, 0.02, 0.5, 0.01, function (value) {
 						mutate(function (draft) { draft.glass.border = value; }, { wallpaper: false });
 					}),
-					sliderRow('外壳暗度（顶栏/侧栏/输入框统一）', glass.chromeOpacity === undefined ? 0.55 : glass.chromeOpacity, 0, 1, 0.01, function (value) {
+					// 0 = 跟随明暗自动（深色 .5 / 浅色 .42）。这里显示"实际生效值"，
+					// 旧实现显示的 0.55 是第三份漂移的默认值，与真正生效的数值对不上。
+					sliderRow('外壳暗度（顶栏/侧栏/输入框统一；0 = 自动）',
+						(!glass.chromeOpacity ? (isDarkTheme() ? 0.5 : 0.42) : glass.chromeOpacity), 0, 1, 0.01, function (value) {
 						mutate(function (draft) { draft.glass.chromeOpacity = value; }, { wallpaper: false });
 					}),
 					sliderRow('外壳磨砂（顶栏/侧栏/输入框统一）', glass.chromeBlur === undefined ? 0 : glass.chromeBlur, 0, 24, 1, function (value) {
@@ -4791,7 +5096,6 @@ window.__ModuleLoader__.load({
 				['wallpaper', t('title.wallpaper')],
 				['glass', t('title.glass')],
 				['pixel', t('title.pixel')],
-				['boot', t('label.boot')],
 				['diag', t('section.diag')],
 				['inputGlow', '渐变边框（输入态）'],
 				['fx', '粒子与小鱼'],
@@ -4858,10 +5162,8 @@ window.__ModuleLoader__.load({
 							className: 'aeth-btn',
 							onClick: function () {
 								if (typeof METEOR === 'undefined' || !METEOR.running) {
-									A.bgUploadState = '流星未启动（检查开关/减弱动效）';
-									notify();
+									toast('流星未启动（检查开关/减弱动效）', 1800);
 									pushLog('warn', '测试流星：未启动', { running: typeof METEOR !== 'undefined' ? METEOR.running : null });
-									setTimeout(function () { A.bgUploadState = ''; notify(); }, 1800);
 									return;
 								}
 								var cx = Math.round(window.innerWidth / 2);
@@ -4932,8 +5234,17 @@ window.__ModuleLoader__.load({
 				mutator(A.cfg);
 				applyAppearance('settings');
 				try { applyWallpaper('settings'); } catch (error) { /* ignore */ }
-				saveConfig('settings').then(function () { setStatus(t('state.saved')); setTimeout(function () { setStatus(''); }, 1200); }).catch(function () { setStatus(t('state.error')); });
+				// 和面板同一套 600ms 防抖：旧实现在这里每次都直接落盘，
+				// 拖一次滑杆 = 30 次全量备份 + 30 次目录扫描。
+				scheduleSave('settings');
 			}
+
+			react.useEffect(function () {
+				return onSaveState(function (state) {
+					setStatus(state === 'saved' ? t('state.saved') : t('state.error'));
+					if (state === 'saved') setTimeout(function () { setStatus(''); }, 1200);
+				});
+			}, []);
 
 			if (!cfg) {
 				return h('div', { className: 'aeth-root', 'data-aeth-surface': 'settings' },
@@ -5033,14 +5344,22 @@ window.__ModuleLoader__.load({
 								var file = event.target.files && event.target.files[0];
 								event.target.value = '';
 								if (!file) return;
+								if (!window.confirm(t('pack.confirm'))) return;
 								var reader = new FileReader();
 								reader.onload = function () {
 									try {
 										var parsed = JSON.parse(String(reader.result));
-										A.cfg = mergeConfig(parsed && parsed.appearance ? parsed.appearance : parsed, A.defaults || defaultConfigFallback());
+										var check = sanitizeThemePack(parsed && parsed.appearance ? parsed.appearance : parsed);
+										if (!check.ok) {
+											setStatus(t('pack.rejected'));
+											pushLog('warn', '主题包被拒绝', { reason: check.reason });
+											return;
+										}
+										A.cfg = mergeConfig(check.value, A.defaults || defaultConfigFallback());
 										applyAppearance('import');
 										applyWallpaper('import');
-										saveConfig('import').then(function () { setStatus(t('state.saved')); });
+										scheduleSave('import');
+										setStatus(t('state.saved'));
 									} catch (error) { setStatus(t('state.error')); }
 								};
 								reader.readAsText(file, 'utf-8');
@@ -5315,7 +5634,7 @@ window.__ModuleLoader__.load({
 		function renderBubbleDeco(node, cfg) {
 			try {
 				if (cfg.image) {
-					var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(cfg.image) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
+					var url = mediaUrl(cfg.image);
 					if (node.getAttribute('data-deco-image') !== cfg.image) {
 						node.setAttribute('data-deco-image', cfg.image);
 						node.textContent = '';
@@ -5405,7 +5724,7 @@ window.__ModuleLoader__.load({
 		/** 状态行标记：只有带这个属性的元素才允许承载 agent 头像。 */
 		var STATUS_MARK = 'data-aether-status';
 
-		var avatarObserver = null;
+		var avatarStarted = false;
 		var avatarTimer = null;
 
 		function avatarConfig() {
@@ -5416,7 +5735,7 @@ window.__ModuleLoader__.load({
 		}
 
 		function avatarUrl(id) {
-			return A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(id) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
+			return mediaUrl(id);
 		}
 
 		function renderAvatar(node, cfg, side) {
@@ -5444,15 +5763,6 @@ window.__ModuleLoader__.load({
 					if (node.textContent !== text.slice(0, 2)) node.textContent = text.slice(0, 2);
 				}
 			} catch (error) { /* ignore */ }
-		}
-
-		function findAvatarHost(row) {
-			try {
-				// 行容器里：用户头像挂右侧，agent 头像挂左侧
-				return row;
-			} catch (error) {
-				return null;
-			}
 		}
 
 		function syncAvatar(row, side, cfg) {
@@ -5511,39 +5821,70 @@ window.__ModuleLoader__.load({
 			return null;
 		}
 
+		/**
+		 * 每行 → 已算出的宿主节点的缓存。
+		 * findStatusLine() 要向上 6 层、每层 querySelectorAll 再遍历，O(N²) + 布局抖动；
+		 * 而宿主节点在会话里几乎不变，只在这个节点脱离文档后才需要重算。
+		 */
+		var AVATAR_HOST_CACHE = new WeakMap();
+		var AVATAR_SEEN = [];
+
+		/** 宿主是否还可用：仍在文档里，且头像节点没被 React 重渲染冲掉。 */
+		function avatarHostAlive(host) {
+			try {
+				if (!host || !host.isConnected) return false;
+				return host.querySelector(':scope > .aeth-avatar-agent') !== null;
+			} catch (error) {
+				return false;
+			}
+		}
+
+		function resolveAgentHost(row) {
+			var cached = AVATAR_HOST_CACHE.get(row);
+			if (avatarHostAlive(cached)) return cached;
+			var status = findStatusLine(row) || row;     // 状态行优先，找不到就退回内容容器
+			// 宿主选择：状态行的「行容器」（父级），而不是 span 本身 ——
+			// 状态行每秒更新计时文案，React 会重写 span 内容，挂在 span 里的头像会被一起删掉。
+			// 父级如果是正常大小的行容器就用它；过大（整轮容器）才退回 span。
+			var host = status;
+			try {
+				var parent = status.parentElement;
+				// DevTools 实测：状态行是 button.hE4tRW_root，825×33 —— 宽度上限必须足够大
+				if (parent && parent !== row
+					&& parent.offsetWidth > 0 && parent.offsetWidth < 1500
+					&& parent.offsetHeight > 10 && parent.offsetHeight < 120) {
+					host = parent;
+				}
+			} catch (error) { /* ignore */ }
+			AVATAR_HOST_CACHE.set(row, host);
+			return host;
+		}
+
 		function scanAvatars() {
 			try {
 				if (!A.cfg || A.canary.disabled) return;
 				var cfg = avatarConfig();
 				document.querySelectorAll(AVATAR_USER_SELECTOR).forEach(function (row) { syncAvatar(row, 'user', cfg); });
-				var seenStatus = [];
+				var seen = new Set();
+				AVATAR_SEEN = [];
 				document.querySelectorAll(AVATAR_AGENT_SELECTOR).forEach(function (row) {
 					if (row.parentElement && row.parentElement.closest(AVATAR_AGENT_SELECTOR)) return;
-					var status = findStatusLine(row) || row;     // 状态行优先，找不到就退回内容容器
-					// 宿主选择：状态行的「行容器」（父级），而不是 span 本身 ——
-					// 状态行每秒更新计时文案，React 会重写 span 内容，挂在 span 里的头像会被一起删掉。
-					// 父级如果是正常大小的行容器就用它；过大（整轮容器）才退回 span。
-					var host = status;
-					try {
-						var parent = status.parentElement;
-						// DevTools 实测：状态行是 button.hE4tRW_root，825×33 —— 宽度上限必须足够大
-						if (parent && parent !== row
-							&& parent.offsetWidth > 0 && parent.offsetWidth < 1500
-							&& parent.offsetHeight > 10 && parent.offsetHeight < 120) {
-							host = parent;
-						}
-					} catch (error) { /* ignore */ }
-					if (seenStatus.indexOf(host) !== -1) return;
-					seenStatus.push(host);
-					try { host.setAttribute(STATUS_MARK, '1'); } catch (error) { /* ignore */ }
+					var host = resolveAgentHost(row);
+					if (!host || seen.has(host)) return;
+					seen.add(host);
+					AVATAR_SEEN = Array.from(seen);
+					// 只在没标过时才写属性：重复写同一个值也会产生 mutation record，
+					// 进而触发自己的 MutationObserver（旧实现空闲时也在 250ms 全量扫描）。
+					if (host.getAttribute(STATUS_MARK) !== '1') {
+						try { host.setAttribute(STATUS_MARK, '1'); } catch (error) { /* ignore */ }
+					}
 					syncAvatar(host, 'agent', cfg);
 				});
 				// 清理：只保留本轮挂上的 host，其余（历史残留 / 挂错位置）全部移除
-				var keep = [];
-				seenStatus.forEach(function (host) { keep.push(host); });
+				var keep = seen;
 				document.querySelectorAll('.aeth-avatar-agent').forEach(function (node) {
 					var host = node.parentElement;
-					if (!host || keep.indexOf(host) === -1) {
+					if (!host || !keep.has(host)) {
 						try { node.remove(); } catch (error) { /* ignore */ }
 					}
 				});
@@ -5551,6 +5892,7 @@ window.__ModuleLoader__.load({
 					document.querySelectorAll('.aeth-avatar').forEach(function (node) {
 						try { node.remove(); } catch (error) { /* ignore */ }
 					});
+					AVATAR_HOST_CACHE = new WeakMap();
 				}
 			} catch (error) { /* ignore */ }
 		}
@@ -5565,22 +5907,34 @@ window.__ModuleLoader__.load({
 
 		function startAvatars() {
 			try {
-				if (avatarObserver) return;
-				avatarObserver = true;
+				if (avatarStarted) return;
+				avatarStarted = true;
 				watchDom(scanAvatars);
 				scheduleAvatarScan();
 			} catch (error) { /* ignore */ }
 		}
 
+		/** 清掉状态行标记：关主题/停用时不能留下 data-aether-status 痕迹。 */
+		function clearAvatarMarks() {
+			try {
+				document.querySelectorAll('[' + STATUS_MARK + ']').forEach(function (node) {
+					try { node.removeAttribute(STATUS_MARK); } catch (error) { /* ignore */ }
+				});
+			} catch (error) { /* ignore */ }
+			AVATAR_HOST_CACHE = new WeakMap();
+			AVATAR_SEEN = [];
+		}
+
 		function stopAvatars() {
 			try { unwatchDom(scanAvatars); } catch (error) { /* ignore */ }
-			avatarObserver = null;
+			avatarStarted = false;
 			if (avatarTimer) { clearTimeout(avatarTimer); avatarTimer = null; }
 			try {
 				document.querySelectorAll('.aeth-avatar').forEach(function (node) {
 					try { node.remove(); } catch (error) { /* ignore */ }
 				});
 			} catch (error) { /* ignore */ }
+			clearAvatarMarks();
 		}
 
 		// ── 90-apply.js ─────────────────────────────────────────────────────
@@ -5775,6 +6129,9 @@ window.__ModuleLoader__.load({
 				window.addEventListener('focus', ensureVideoPlaying);
 				// 兜底检查并入低频总线（6s 一次，比原来 4s 更省）
 				idleEvery(6, ensureVideoPlaying);
+				// 媒体令牌有时效（Host 侧 12h）：挂着很久的页面靠这条低频续期，
+				// 否则第二天打开面板会发现壁纸缩略图全 401。
+				idleEvery(3600, function () { refreshMediaToken(); });
 			} catch (error) { /* ignore */ }
 
 			// 2.35) 气泡装饰观察器
@@ -5805,6 +6162,7 @@ window.__ModuleLoader__.load({
 					ctx.effect(function () {
 						return function () {
 							try { idleStop(); } catch (error) { /* ignore */ }
+							try { scanStop(); } catch (error) { /* ignore */ }
 							try { if (A.applyRaf) cancelAnimationFrame(A.applyRaf); A.applyRaf = null; } catch (error) { /* ignore */ }
 							try { if (A.rotationTimer) clearInterval(A.rotationTimer); } catch (error) { /* ignore */ }
 							try { if (A.diagTimer) clearInterval(A.diagTimer); } catch (error) { /* ignore */ }
