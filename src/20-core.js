@@ -505,7 +505,8 @@ function migrateBlurOff(cfg) {
 					delete cfg.glass.inputFill;
 				}
 			}
-			if (cfg.wallpaper && cfg.wallpaper.dim === 0.32) cfg.wallpaper.dim = 0;
+			// 不要再把 dim 0.32 归零：0.32 现在是默认值（v1.1.0 统一默认值），
+			// 这条旧迁移会让每一份全新配置的默认值立刻被抹成 0 —— 踩过。
 		}
 		// v3-aqua-chrome：外壳磨砂对齐 Aqua（blur 14px / 暗度 50%）
 		if (cfg.migrations.indexOf('v3-aqua-chrome') === -1) {
@@ -1510,6 +1511,15 @@ function clearVar(name) {
 // 就判定宿主 DOM 契约已变：撤掉自己注入的 CSS 与 DOM，交还官方原生布局，绝不硬撑。
 // 旧实现要求 #root / body / html[data-platform] "三者同时"丢失，而 body 永远存在，
 // 等于这条保护永不触发 —— 现在改为"任一关键锚点连续缺失"。
+/**
+ * 「契约锚点」= 本插件 CSS 真正依赖的结构。#root 与 body 是硬依赖；
+ * html[data-platform] 不是 —— dsh web 构建上根本没有这个属性（实测 false），
+ * 把它算进来会让金丝雀自我撤离、诊断页永远显示"锚点丢失"。
+ */
+function canaryContractOk(anchors) {
+	return Boolean(anchors && anchors.root && anchors.body);
+}
+
 function canaryAnchors() {
 	var anchors = {
 		root: Boolean(document.getElementById('root')),
@@ -1528,8 +1538,12 @@ function canaryTick() {
 		platform: !anchors.platform,
 	};
 	A.canary.lost = lost;
-	var anyLost = lost.root || lost.body || lost.platform;
-	if (anyLost) {
+	// 只把「本插件 CSS 真正依赖的锚点」当契约：#root 与 body。
+	// html[data-platform] 不是契约 —— dsh web 上根本没有这个属性（实测 false），
+	// 把它算进"任一缺失即告警"会让金丝雀在 web 上 80 秒后自我撤离、主题直接消失。
+	// 它只作为诊断信息记录，不参与判定。
+	var contractLost = lost.root || lost.body;
+	if (contractLost) {
 		A.canary.strikes += 1;
 	} else {
 		A.canary.strikes = 0;
@@ -1579,6 +1593,7 @@ function collectDiag() {
 		uptimeMs: Date.now() - A.startedAt,
 		theme: { dark: isDarkTheme(), reduceMotion: shouldReduceMotion(), platform: (document.documentElement.getAttribute('data-platform') || '') },
 		anchors: anchors,
+		anchorsNote: anchors.platform ? null : 'html[data-platform] 缺省（非契约锚点，web 构建正常现象）',
 		strikes: A.canary.strikes,
 		config: A.cfg ? { mode: A.cfg.wallpaper && A.cfg.wallpaper.mode, modules: A.cfg.modules } : null,
 		tokens: tokens,
@@ -1704,6 +1719,15 @@ function notify() {
 	A.subscribers.slice().forEach(function (fn) {
 		try { fn(); } catch (error) { /* 单个订阅者出错不影响其他 */ }
 	});
+}
+
+/** 一键设定「主题引擎」总开关：顶层 enabled 与 modules.theme 必须同步，否则两个开关各说各话。 */
+function setThemeEnabled(cfg, value) {
+	if (!cfg) return cfg;
+	cfg.enabled = Boolean(value);
+	cfg.modules = cfg.modules || {};
+	cfg.modules.theme = Object.assign({}, cfg.modules.theme || {}, { enabled: Boolean(value) });
+	return cfg;
 }
 
 function moduleOn(name) {
