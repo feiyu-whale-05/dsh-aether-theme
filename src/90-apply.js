@@ -194,6 +194,10 @@ var apply = function apply(ctx) {
 		idleEvery(3600, function () { refreshMediaToken(); });
 	} catch (error) { /* ignore */ }
 
+	// 2.34b) 首屏外壳标记：顶栏 ::before 的宿主必须尽早打上，
+	// 否则「应用/编辑」那条的底色/背景图要等第一次 250ms 扫描才出现。
+	try { tagAppFrame(); tagTopbar(); } catch (error) { /* ignore */ }
+
 	// 2.35) 气泡装饰观察器
 	try { startBubbleDeco(); } catch (error) { /* ignore */ }
 	try { startAvatars(); } catch (error) { /* ignore */ }
