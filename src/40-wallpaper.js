@@ -3,10 +3,30 @@
 // 视频用原生流式硬解（muted + playsinline + preload=metadata），200MB 文件
 // 不进内存、不阻塞主线程。
 
+/**
+ * 彻底释放一层壁纸：先让 <video> 停止解码，再摘节点。
+ * Chromium 对"已脱离文档"的媒体元素不保证立刻挂起解码，4K 视频壁纸会持续吃 GPU/内存。
+ */
+function disposeWallLayer(layer) {
+	try {
+		var media = layer && layer.querySelector ? layer.querySelector('video') : null;
+		if (media) {
+			try { media.pause(); } catch (error) { /* ignore */ }
+			try { media.removeAttribute('src'); } catch (error) { /* ignore */ }
+			try { media.load(); } catch (error) { /* ignore */ }
+		}
+	} catch (error) { /* ignore */ }
+	try { layer.remove(); } catch (error) { /* ignore */ }
+}
+
 function clearWallpaperLayers() {
-	A.layerEls.forEach(function (layer) {
-		try { layer.remove(); } catch (error) { /* ignore */ }
-	});
+	if (A.videoEl) {
+		try { A.videoEl.pause(); } catch (error) { /* ignore */ }
+		try { A.videoEl.removeAttribute('src'); } catch (error) { /* ignore */ }
+		try { A.videoEl.load(); } catch (error) { /* ignore */ }
+		A.videoEl = null;
+	}
+	A.layerEls.forEach(disposeWallLayer);
 	A.layerEls = [];
 	A.currentWallKey = '';
 	if (A.rotationTimer) {
@@ -89,12 +109,15 @@ function swapWallLayer(kind, source) {
 	if (A.currentWallKey === key) return;
 	var oldLayers = A.layerEls.slice();
 	var layer = buildWallLayer(kind, source);
+	// 切走视频壁纸时清掉陈旧引用：否则 ensureVideoPlaying() 还会对已脱离文档的
+	// <video> 调 play()，并在诊断里报"已暂停"的假象。
+	if (kind !== 'video') A.videoEl = null;
 	stage.appendChild(layer);
 	var reduced = shouldReduceMotion();
 	if (reduced) {
 		layer.style.transition = 'none';
 		layer.classList.add('is-on');
-		oldLayers.forEach(function (old) { try { old.remove(); } catch (error) { /* ignore */ } });
+		oldLayers.forEach(disposeWallLayer);
 		A.layerEls = [layer];
 		A.currentWallKey = key;
 		return;
@@ -104,13 +127,13 @@ function swapWallLayer(kind, source) {
 		try { layer.classList.add('is-on'); } catch (error) { /* ignore */ }
 	});
 	var cleanup = setTimeout(function () {
-		oldLayers.forEach(function (old) { try { old.remove(); } catch (error) { /* ignore */ } });
+		oldLayers.forEach(disposeWallLayer);
 	}, 900);
 	// 旧层保持到新层过渡完成（transitionend 是加分项，setTimeout 是兜底）
 	layer.addEventListener('transitionend', function handler() {
 		layer.removeEventListener('transitionend', handler);
 		if (cleanup) clearTimeout(cleanup);
-		oldLayers.forEach(function (old) { try { old.remove(); } catch (error) { /* ignore */ } });
+		oldLayers.forEach(disposeWallLayer);
 	});
 	A.layerEls = [layer];
 	A.currentWallKey = key;
@@ -153,7 +176,7 @@ function applyWallpaper(reason) {
 	var source = kind === 'css'
 		? (config.cssPreset || 'aurora')
 		: (config.source === 'file' && config.id
-			? A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(config.id) + (A.token ? '&token=' + encodeURIComponent(A.token) : '')
+			? mediaUrl(config.id)
 			: (config.presetUrl || ''));
 	if (!source) {
 		clearWallpaperLayers();
