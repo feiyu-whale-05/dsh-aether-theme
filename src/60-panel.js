@@ -1208,7 +1208,7 @@ function StyleTab(cfg, mutate) {
 
 function ModulesTab(cfg, mutate) {
 	var names = [
-		['theme', '主题引擎（对比度/取色）'],
+		['theme', '主题引擎（总开关：关掉=整套外观退场）'],
 		['wallpaper', t('title.wallpaper')],
 		['glass', t('title.glass')],
 		['pixel', t('title.pixel')],
@@ -1222,7 +1222,14 @@ function ModulesTab(cfg, mutate) {
 		names.map(function (pair) {
 			var key = pair[0];
 			return toggleRow(pair[1], moduleOn(key), function (value) {
-				mutate(function (draft) { draft.modules[key].enabled = value; }, { wallpaper: key === 'wallpaper' || key === 'pixel' });
+				mutate(function (draft) {
+					if (key === 'theme') {
+						// 主题引擎同时是总开关：两个字段一起写，避免状态不一致
+						setThemeEnabled(draft, value);
+						return;
+					}
+					draft.modules[key].enabled = value;
+				}, { wallpaper: key === 'wallpaper' || key === 'pixel' || key === 'theme' });
 			});
 		}),
 	);
@@ -1244,7 +1251,7 @@ function DiagTab(exportDiag) {
 function renderDiagTab(exportDiag) {
 	var diag = A.lastDiag || collectDiag();
 	var anchors = canaryAnchors();
-	var ok = anchors.root && anchors.body && anchors.platform;
+	var ok = canaryContractOk(anchors);
 	return h('div', null,
 		h('div', { className: 'aeth-card' },
 			h('h3', null, t('title.diag')),
@@ -1257,16 +1264,16 @@ function renderDiagTab(exportDiag) {
 				h('b', null, 'dark'), h('span', null, String(isDarkTheme())),
 				h('b', null, 'reduced-motion'), h('span', null, String(shouldReduceMotion())),
 				h('b', null, '#root'), h('span', null, String(anchors.root)),
-				h('b', null, 'data-platform'), h('span', null, String(anchors.platform)),
+				h('b', null, 'data-platform'), h('span', null, anchors.platform ? 'true' : 'false（非契约锚点，web 正常）'),
 				h('b', null, '配置文件'), h('span', null, (A.host.diag && A.host.diag.configFile) || '~/.dsh/aether-theme/config.json'),
 				h('b', null, '下压状态'), h('span', { className: A.pressRunning ? 'aeth-ok' : 'aeth-bad' },
 					A.pressRunning ? ('监听中（' + Math.round(TILT_MAX / 0.01745 * 10) / 10 + '° 倾斜）') : '未启动'),
 				h('b', null, '下压目标'), h('span', null, A.pressDebug ? (A.pressDebug.tag + '.' + (A.pressDebug.cls.split(' ')[0] || '') + (A.pressDebug.position ? ' [' + A.pressDebug.position + ']' : '')) : '（把指针移到对话框上再看）'),
-				h('b', null, '流星尾缀'), h('span', { className: (typeof METEOR !== 'undefined' && METEOR.canvas) ? 'aeth-ok' : 'aeth-bad' },
+				h('b', null, '流星尾缀'), h('span', { className: (typeof METEOR !== 'undefined' && METEOR.canvas) ? 'aeth-ok' : (meteorEnabled() ? 'aeth-bad' : '') },
 					(typeof METEOR !== 'undefined' && METEOR.canvas)
 						? ('运行中 · canvas ' + METEOR.canvas.width + '×' + METEOR.canvas.height + ' · 粒子 ' + METEOR.particles.length)
 						: (shouldReduceMotion() ? 'reduced-motion 静默' : (meteorEnabled() ? '已启用但未启动' : '开关未开'))),
-				h('b', null, '粒子/小鱼'), h('span', { className: (typeof CRITTERS !== 'undefined' && CRITTERS.built > 0) ? 'aeth-ok' : 'aeth-bad' },
+				h('b', null, '粒子/小鱼'), h('span', { className: (typeof CRITTERS !== 'undefined' && CRITTERS.built > 0) ? 'aeth-ok' : (moduleOn('fx') ? 'aeth-bad' : '') },
 					(typeof CRITTERS !== 'undefined' && CRITTERS.built > 0)
 						? CRITTERS.built + ' 个节点已注入'
 						: (shouldReduceMotion() ? '已被 reduced-motion 静默' : '未注入')),
