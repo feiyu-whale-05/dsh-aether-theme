@@ -1,6 +1,2 @@
-node_modules/
-_preview-check.png
-*.bak.json
-config*.tmp
-logs/
 .tmp/
+.tmp2/
