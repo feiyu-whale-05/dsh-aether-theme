@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.87';
+var VERSION = '1.0.88';
 
 var A = {
 	ctx: null,
@@ -1352,6 +1352,19 @@ function collectDiag() {
 				})(),
 				host: A.host && A.host.remoteWallpaperMode ? A.host.remoteWallpaperMode : null,
 			},
+			titlebarBg: (function () {
+				try {
+					var frame = document.querySelector('[data-aether-frame]');
+					if (!frame) return null;
+					var style = window.getComputedStyle(frame, '::before');
+					return {
+						frameClass: String(frame.className || '').slice(0, 40),
+						hasWindowTitlebar: document.documentElement.hasAttribute('data-windows-titlebar'),
+						image: String(style.backgroundImage || '').slice(0, 80),
+						topbarVar: String(window.getComputedStyle(document.documentElement).getPropertyValue('--aether-topbar-img') || '').slice(0, 80),
+					};
+				} catch (error) { return null; }
+			})(),
 			topbar: {
 				tabs: document.querySelectorAll('[data-conversation-tabs]').length,
 				marked: document.querySelectorAll('[data-aether-topbar]').length,
