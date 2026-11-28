@@ -630,11 +630,14 @@ function applyAppearanceNow(reason) {
 		var glassPx = moduleOn('glass')
 			? clamp(glassCfg.glassBlur === undefined ? 0 : glassCfg.glassBlur, 0, 64)
 			: 0;
-		if (chromePx > 0 && !A.chromeBlurBanned) {
+		var frostOn = chromePx > 0 && !A.chromeBlurBanned;
+		if (frostOn) {
 			document.documentElement.setAttribute('data-chrome-blur', 'on');
 		} else {
 			document.documentElement.removeAttribute('data-chrome-blur');
 		}
+		// 侧栏磨砂垫层跟着开关走（不再把 blur 挂到全屏 frame 上）
+		try { syncSidebarFrost(frostOn); } catch (error) { /* ignore */ }
 		if (glassPx > 0) {
 			document.documentElement.setAttribute('data-glass-blur', 'on');
 		} else {
