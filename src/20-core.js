@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.3.1';
+var VERSION = '1.3.2';
 
 var A = {
 	ctx: null,
@@ -1064,6 +1064,28 @@ var SCAN_BUS = { timer: null, running: false };
  * 全屏磨砂保险丝：frame 一旦接近整窗面积就撤掉 data-chrome-blur。
  * 只在扫描总线上跑（250ms 合并），不进 applyAppearance 热路径。
  */
+/**
+ * 侧栏磨砂垫层：插在侧栏列内部、作为第一个子元素。
+ * 因为它是按钮的**兄弟**而不是祖先，所以 backdrop-filter 创建的包含块
+ * 不会影响侧栏里那个 position:fixed 的收起/展开按钮。
+ */
+function syncSidebarFrost(enabled) {
+	try {
+		var col = document.querySelector('[class*="sidebarCol"]');
+		var existing = document.querySelector('.aether-frost');
+		if (!enabled || !col) {
+			if (existing) { try { existing.remove(); } catch (error) { /* ignore */ } }
+			return;
+		}
+		if (existing && existing.parentElement === col) return;
+		if (existing) { try { existing.remove(); } catch (error) { /* ignore */ } }
+		var frost = document.createElement('div');
+		frost.className = 'aether-frost';
+		frost.setAttribute('aria-hidden', 'true');
+		col.insertBefore(frost, col.firstChild);
+	} catch (error) { /* ignore */ }
+}
+
 function guardFrameBlur() {
 	try {
 		if (!document.documentElement.hasAttribute('data-chrome-blur')) return;
@@ -1222,9 +1244,22 @@ function buildStyleText() {
 		// 严禁给 [class*="sidebarCol"] 加 backdrop-filter / transform / filter：
 		// 三者都会创建包含块，把侧栏里 position:fixed 的「收起/展开」按钮从视口坐标
 		// 改挂到侧栏坐标，按钮就"掉进"侧栏里了（它应当待在「应用/编辑」那条顶栏）。
-		'html[data-dsh-aether][data-chrome-blur="on"] [data-aether-frame],',
+		// 外壳磨砂：
+		//   · 输入框卡片直接加（面积小）
+		//   · 侧栏**不能**加在 [class*=sidebarCol] 上 —— 那会创建包含块，
+		//     把侧栏里 position:fixed 的收起/展开按钮拽进侧栏坐标系。
+		//     改成在侧栏内部插一个 .aether-frost 垫层，自己带 backdrop-filter。
+		//   · AppFrame 明确不加：它是全屏的，14px 全屏模糊代价极高（性能报告 P0）。
 		'html[data-dsh-aether][data-chrome-blur="on"] [data-aether-input-host] {',
 		'  backdrop-filter: blur(var(--aether-chrome-blur, 14px)) saturate(1.4) !important;',
+		'}',
+		// isolation:isolate 给侧栏建一个独立的 stacking context（**不**创建包含块），
+		// 垫层就能用 z-index:-1 稳稳待在"侧栏背景之上、内容之下"，
+		// 否则定位元素会画在未定位的正文之上，文字跟着被模糊（实测踩到）。
+		'html[data-dsh-aether] [class*="sidebarCol"] { position: relative; isolation: isolate; }',
+		'html[data-dsh-aether] .aether-frost {',
+		'  position: absolute; inset: 0; z-index: -1; pointer-events: none;',
+		'  backdrop-filter: blur(var(--aether-chrome-blur, 14px)) saturate(1.4);',
 		'}',
 		// ── 分区背景（每块可单独覆盖；未启用时回落到外壳统一色 chrome-fill） ──
 		// 每个分区只允许【一条】声明。同特异性后写的会无条件吞掉前面的自定义变量，
