@@ -33,8 +33,17 @@ function AetherSettingsSection() {
 		mutator(A.cfg);
 		applyAppearance('settings');
 		try { applyWallpaper('settings'); } catch (error) { /* ignore */ }
-		saveConfig('settings').then(function () { setStatus(t('state.saved')); setTimeout(function () { setStatus(''); }, 1200); }).catch(function () { setStatus(t('state.error')); });
+		// 和面板同一套 600ms 防抖：旧实现在这里每次都直接落盘，
+		// 拖一次滑杆 = 30 次全量备份 + 30 次目录扫描。
+		scheduleSave('settings');
 	}
+
+	react.useEffect(function () {
+		return onSaveState(function (state) {
+			setStatus(state === 'saved' ? t('state.saved') : t('state.error'));
+			if (state === 'saved') setTimeout(function () { setStatus(''); }, 1200);
+		});
+	}, []);
 
 	if (!cfg) {
 		return h('div', { className: 'aeth-root', 'data-aeth-surface': 'settings' },
@@ -134,14 +143,22 @@ function AetherSettingsSection() {
 						var file = event.target.files && event.target.files[0];
 						event.target.value = '';
 						if (!file) return;
+						if (!window.confirm(t('pack.confirm'))) return;
 						var reader = new FileReader();
 						reader.onload = function () {
 							try {
 								var parsed = JSON.parse(String(reader.result));
-								A.cfg = mergeConfig(parsed && parsed.appearance ? parsed.appearance : parsed, A.defaults || defaultConfigFallback());
+								var check = sanitizeThemePack(parsed && parsed.appearance ? parsed.appearance : parsed);
+								if (!check.ok) {
+									setStatus(t('pack.rejected'));
+									pushLog('warn', '主题包被拒绝', { reason: check.reason });
+									return;
+								}
+								A.cfg = mergeConfig(check.value, A.defaults || defaultConfigFallback());
 								applyAppearance('import');
 								applyWallpaper('import');
-								saveConfig('import').then(function () { setStatus(t('state.saved')); });
+								scheduleSave('import');
+								setStatus(t('state.saved'));
 							} catch (error) { setStatus(t('state.error')); }
 						};
 						reader.readAsText(file, 'utf-8');
