@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.0.86';
+var VERSION = '1.0.87';
 
 var A = {
 	ctx: null,
@@ -634,17 +634,30 @@ function isMaskNode(node) {
 
 /** 立即移除屏幕上已有的遮罩层。 */
 function removeMaskLayers() {
-	var removed = 0;
+	// 绝不 remove() 这些节点：遮罩层由宿主 React 渲染，外部删除会让它持有的 DOM 引用
+	// 失效 —— 表现就是「图片放大查看瞬闪后消失」，紧接着切换会话抛错卡死。
+	// 这里只打标记，由 CSS 把背景清成透明。
+	var marked = 0;
 	try {
 		var nodes = document.querySelectorAll(MASK_SELECTOR);
 		for (var i = 0; i < nodes.length; i += 1) {
 			var node = nodes[i];
 			if (!isMaskNode(node)) continue;
-			try { node.remove(); removed += 1; } catch (error) { /* ignore */ }
+			if (node.getAttribute('data-aether-mask-clear') === '1') continue;
+			try { node.setAttribute('data-aether-mask-clear', '1'); marked += 1; } catch (error) { /* ignore */ }
 		}
 	} catch (error) { /* ignore */ }
-	if (removed > 0) pushLog('info', '已移除遮罩层', { count: removed });
-	return removed;
+	if (marked > 0) pushLog('info', '遮罩层已设为透明', { count: marked });
+	return marked;
+}
+
+/** 关闭主题时移除标记，恢复宿主原始遮罩。 */
+function clearMaskMarks() {
+	try {
+		document.querySelectorAll('[data-aether-mask-clear]').forEach(function (node) {
+			try { node.removeAttribute('data-aether-mask-clear'); } catch (error) { /* ignore */ }
+		});
+	} catch (error) { /* ignore */ }
 }
 
 /** 持续清理：对话/设置页打开时会重新插入遮罩。 */
@@ -876,7 +889,9 @@ function buildStyleText() {
 		'  background-image: var(--aether-sidebar-img, none) !important;',
 		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
-		'html[data-dsh-aether] [data-aether-input-host] {',
+				// 遮罩层透明（只改样式；删除宿主 React 节点会让图片查看/切换会话卡死）
+		'html[data-dsh-aether] [data-aether-mask-clear="1"] { background-color: transparent !important; background-image: none !important; }',
+'html[data-dsh-aether] [data-aether-input-host] {',
 		'  background-image: var(--aether-input-img, none) !important;',
 		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
