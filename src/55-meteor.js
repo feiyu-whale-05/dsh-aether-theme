@@ -110,6 +110,11 @@ function meteorOnMove(event) {
 	METEOR.last = { x: x, y: y, t: now };
 }
 
+/** 具名 resize 处理函数：匿名函数无法 removeEventListener，会随启停叠加。 */
+function meteorOnResize() {
+	if (METEOR.running) meteorResize();
+}
+
 function startMeteor() {
 	if (METEOR.running) return;
 	if (!meteorEnabled()) return;
@@ -129,7 +134,7 @@ function startMeteor() {
 	if (!METEOR.bound) {
 		METEOR.bound = true;
 		window.addEventListener('mousemove', meteorOnMove, { passive: true });
-		window.addEventListener('resize', function () { if (METEOR.running) meteorResize(); }, { passive: true });
+		window.addEventListener('resize', meteorOnResize, { passive: true });
 	}
 	METEOR.running = true;
 	METEOR.raf = requestAnimationFrame(meteorTick);
@@ -144,6 +149,8 @@ function stopMeteor() {
 	}
 	if (METEOR.bound) {
 		try { window.removeEventListener('mousemove', meteorOnMove); } catch (error) { /* ignore */ }
+		// resize 监听必须一起摘掉：旧实现只解 mousemove，反复启停后监听器会叠加
+		try { window.removeEventListener('resize', meteorOnResize); } catch (error) { /* ignore */ }
 		METEOR.bound = false;
 	}
 	if (METEOR.canvas) {
@@ -163,4 +170,3 @@ function syncMeteor() {
 }
 
 // 保留组件（overlay 里不再使用，仅为兼容旧引用）
-function MeteorCursor() { return null; }
