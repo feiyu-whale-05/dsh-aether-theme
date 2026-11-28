@@ -8,6 +8,8 @@
  * Chromium 对"已脱离文档"的媒体元素不保证立刻挂起解码，4K 视频壁纸会持续吃 GPU/内存。
  */
 function disposeWallLayer(layer) {
+	// 只有"整层被替换"时才释放 blob；同一层内部换 src 由调用方处理
+	try { releaseWallpaperBlob(); } catch (error) { /* ignore */ }
 	try {
 		var media = layer && layer.querySelector ? layer.querySelector('video') : null;
 		if (media) {
@@ -44,6 +46,55 @@ function currentWallpaperKey() {
 	return '';
 }
 
+/** 释放上一张 Blob 壁纸，避免切换多次后内存堆积 */
+function releaseWallpaperBlob() {
+	try {
+		if (A.videoBlobUrl) { URL.revokeObjectURL(A.videoBlobUrl); A.videoBlobUrl = null; }
+	} catch (error) { /* ignore */ }
+}
+
+/**
+ * 用带 header 令牌的请求把媒体取成 Blob URL。
+ * 只在 <video>/<img> 直连失败时兜底（query 令牌在 dsh-app:// 下不可靠）。
+ * 超过上限（默认 96MB）不兜底，避免把大文件塞进内存。
+ * @returns {Promise<string|null>}
+ */
+function fetchWallpaperBlob(source, kind) {
+	var id = '';
+	try {
+		var m = /[?&]id=([^&]+)/.exec(String(source || ''));
+		if (m) id = decodeURIComponent(m[1]);
+	} catch (error) { /* ignore */ }
+	if (!id) return Promise.resolve(null);
+	var limitBytes = 96 * 1024 * 1024;
+	// 加超时：自定义协议下媒体流请求可能一直不返回
+	var controller = null;
+	try { controller = new AbortController(); } catch (error) { controller = null; }
+	var timer = controller ? setTimeout(function () { try { controller.abort(); } catch (error) { /* ignore */ } }, 8000) : null;
+	var clearTimer = function () { if (timer) { try { clearTimeout(timer); } catch (error) { /* ignore */ } } };
+	return apiFetch('/api/wallpaper?id=' + encodeURIComponent(id), { raw: true, signal: controller ? controller.signal : undefined })
+		.then(function (r) { clearTimer(); return r; }, function (e) { clearTimer(); throw e; })
+		.then(function (response) {
+			if (!response || !response.ok) return null;
+			var length = Number(response.headers.get('content-length') || 0);
+			if (length && length > limitBytes) {
+				pushLog('warn', '媒体过大，放弃 Blob 兜底', { id: id, bytes: length });
+				return null;
+			}
+			return response.blob();
+		})
+		.then(function (blob) {
+			if (!blob || blob.size === 0) return null;
+			if (blob.size > limitBytes) return null;
+			releaseWallpaperBlob();
+			return URL.createObjectURL(blob);
+		})
+		.catch(function (error) {
+			pushLog('warn', '媒体 Blob 兜底失败', { id: id, message: String(error && error.message).slice(0, 80) });
+			return null;
+		});
+}
+
 function buildWallLayer(kind, source) {
 	var layer = document.createElement('div');
 	layer.className = 'aether-wall';
@@ -63,12 +114,45 @@ function buildWallLayer(kind, source) {
 		video.setAttribute('muted', '');
 		video.setAttribute('playsinline', '');
 		video.src = source;
+		// 只兜底一次，避免 401 → blob 失败 → 再兜底的死循环
+		var recovered = false;
 		video.addEventListener('error', function () {
-			pushLog('warn', '视频壁纸加载失败，降级为纯 CSS 背景', { source: String(source).slice(0, 120) });
+			var fail = {
+				kind: 'video',
+				url: String(video.currentSrc || video.src || source).slice(0, 220),
+				code: video.error ? video.error.code : null,
+				message: video.error ? String(video.error.message || '').slice(0, 120) : '',
+				networkState: video.networkState,
+				at: Date.now(),
+			};
+			A.lastMediaFail = fail;
+			// 桌面版走 dsh-app:// 自定义协议：<video> 无法带自定义 header，
+			// 如果协议层把 query 吃掉或拒绝，直连必然失败。
+			// 这时改用 apiFetch（带 x-dsh-aether-token header，桌面版是通的）
+			// 把媒体取成 Blob，再用 blob: URL 播 —— 绕开协议层的鉴权限制。
+			if (!recovered && typeof fetch === 'function') {
+				recovered = true;
+				fetchWallpaperBlob(source, 'video').then(function (blobUrl) {
+					if (!blobUrl) {
+						pushLog('warn', '视频壁纸加载失败，降级为纯 CSS 背景', { url: fail.url, code: fail.code });
+						try { layer.remove(); } catch (error) { /* ignore */ }
+						A.currentWallKey = '';
+						var preset = A.cfg && A.cfg.wallpaper ? A.cfg.wallpaper.cssPreset : 'aurora';
+						swapWallLayer('css', preset || 'aurora');
+						return;
+					}
+					pushLog('info', '视频壁纸改走 Blob 通路', { url: fail.url });
+					A.videoBlobUrl = blobUrl;
+					video.src = blobUrl;
+					video.play().catch(function () { /* ignore */ });
+				});
+				return;
+			}
+			pushLog('warn', '视频壁纸加载失败，降级为纯 CSS 背景', { url: fail.url, code: fail.code });
 			try { layer.remove(); } catch (error) { /* ignore */ }
 			A.currentWallKey = '';
-			var preset = A.cfg && A.cfg.wallpaper ? A.cfg.wallpaper.cssPreset : 'aurora';
-			swapWallLayer('css', preset || 'aurora');
+			var preset2 = A.cfg && A.cfg.wallpaper ? A.cfg.wallpaper.cssPreset : 'aurora';
+			swapWallLayer('css', preset2 || 'aurora');
 		});
 		var playPromise = video.play();
 		if (playPromise && typeof playPromise.catch === 'function') {
@@ -139,9 +223,31 @@ function swapWallLayer(kind, source) {
 	A.currentWallKey = key;
 }
 
+/** 读当前 veil 的 alpha（0~1）。alpha 为 0 时不该存在这个全屏层。 */
+function veilAlphaNow() {
+	try {
+		var raw = getComputedStyle(document.documentElement).getPropertyValue('--aether-veil').trim();
+		var m = /rgba?\([^)]*?,\s*([0-9.]+)\s*\)/.exec(raw);
+		if (m) return Number(m[1]);
+		if (raw === 'transparent' || raw === '') return 0;
+		return 1;     // #000 之类的不透明色
+	} catch (error) {
+		return 0;
+	}
+}
+
+/**
+ * 只有确实需要压暗时才创建 veil。
+ * 旧实现无条件创建，于是 dim=0 + brightness=1 时白白多一个全屏合成层。
+ * @returns {HTMLElement|null}
+ */
 function ensureVeil() {
 	var stage = ensureStage();
 	var veil = stage.querySelector('.aether-veil');
+	if (veilAlphaNow() <= 0.004) {
+		if (veil) { try { veil.remove(); } catch (error) { /* ignore */ } }
+		return null;
+	}
 	if (!veil) {
 		veil = document.createElement('div');
 		veil.className = 'aether-veil';
@@ -154,6 +260,7 @@ function ensureVeil() {
 /** 页面重新可见 / 窗口获得焦点时，把被节流暂停的视频壁纸续播。 */
 function ensureVideoPlaying() {
 	try {
+		if (A.idle && A.idle.paused) return;   // 失焦/不可见：不要抢着续播
 		var video = A.videoEl;
 		if (!video || !video.isConnected) return;
 		if (document.hidden) return;
