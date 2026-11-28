@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.3.0';
+var VERSION = '1.3.1';
 
 var A = {
 	ctx: null,
@@ -933,21 +933,48 @@ function watchMaskLayers() {
 	} catch (error) { /* ignore */ }
 }
 
-/** 标记「顶栏」容器：标签栏 [data-conversation-tabs] 本身 + 它的直接父级（标签行外框）。
- *  只往上两层，确保不会标记到 frame / 标题栏区域。 */
+/**
+ * 标记「顶栏（对话名称栏 / 标签栏）」容器。
+ *
+ * 用户语义：这块是"对话名称 + 标签"那一行/一组，属于「顶栏」区域，
+ * 应该吃 --aether-topbar-bg / --aether-topbar-img。
+ *
+ * 旧实现要求父级"不能含 nav、不能含 headerActions"，而实际结构里标签行本身就
+ * 在 nav 里/旁边，导致 marked 恒为 0 —— 标记从来没打上，背景自然也不显示。
+ * 现在改成：从 [data-conversation-tabs] 往上最多 3 层，取"仍然只是页头"的
+ * 那个最高祖先（高度 ≤ 220、左边不在最左侧），并把它标出来。
+ */
 function tagTopbar() {
 	var marked = 0;
 	try {
-		if (document.querySelectorAll('[data-aether-topbar]').length) return -1; // 已标记
 		var tabs = document.querySelector('[data-conversation-tabs]');
 		if (!tabs) return 0;
-		// 只标记标签行本身（.tabs）：再往上是 header（含标题行），标记它会连标题一起盖住
-		var node = tabs.parentElement;
-		if (node && node.id !== 'root' && !node.hasAttribute('data-aether-frame')
-			&& !node.querySelector(':scope > [data-conversation-header-corner], :scope > nav, :scope > [class*="headerActions"]')) {
-			node.setAttribute('data-aether-topbar', '1');
-			marked += 1;
+		var best = tabs;
+		var node = tabs;
+		for (var i = 0; i < 3; i += 1) {
+			var parent = node.parentElement;
+			if (!parent) break;
+			if (parent.hasAttribute('data-aether-frame')) break;
+			if (parent.id === 'root') break;
+			var rect = parent.getBoundingClientRect();
+			// 只在"页头"范围内继续往上：太高（整个内容列）就停
+			if (rect.height > 220 || rect.top > 160) break;
+			best = parent;
+			node = parent;
 		}
+		// 清理旧标记，避免换页面后残留
+		document.querySelectorAll('[data-aether-topbar]').forEach(function (old) {
+			if (old !== best) { try { old.removeAttribute('data-aether-topbar'); } catch (error) { /* ignore */ } }
+		});
+		if (best.getAttribute('data-aether-topbar') !== '1') best.setAttribute('data-aether-topbar', '1');
+		marked = 1;
+		A.topbarDiag = {
+			cls: String(best.className || '').slice(0, 60),
+			rect: (function () {
+				var r = best.getBoundingClientRect();
+				return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+			})(),
+		};
 	} catch (error) { /* ignore */ }
 	return marked;
 }
@@ -1220,8 +1247,11 @@ function buildStyleText() {
 		'  content: ""; position: absolute; top: 0; left: 0; right: 0;',
 		'  height: var(--aether-titlebar-h, 40px);',
 		'  pointer-events: none; z-index: 0;',
-		'  background-color: var(--aether-topbar-bg, var(--aether-titlebar-bg, var(--aether-chrome-fill))) !important;',
-		'  background-image: linear-gradient(rgba(0, 0, 0, var(--aether-titlebar-extra, .08)), rgba(0, 0, 0, var(--aether-titlebar-extra, .08))), var(--aether-topbar-img, var(--aether-titlebar-img, none)) !important;',
+		// 只吃「标题栏（应用/编辑）」这一区的变量。以前把 topbar 区的变量也兜进来，
+		// 导致用户给「顶栏（标签栏）」设的图跑到了 Windows 标题栏条上。
+		'  background-color: var(--aether-titlebar-bg, var(--aether-chrome-fill)) !important;',
+		// 压暗量 = titlebar-extra（原有）+ region-img-dim（背景图可读性补偿）
+		'  background-image: linear-gradient(rgba(0, 0, 0, calc(var(--aether-titlebar-extra, .08) + var(--aether-region-img-dim, 0))), rgba(0, 0, 0, calc(var(--aether-titlebar-extra, .08) + var(--aether-region-img-dim, 0)))), var(--aether-titlebar-img, none) !important;',
 		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
 		// 输入框卡片：底色 + 背景图（一条规则）
@@ -1242,7 +1272,23 @@ function buildStyleText() {
 		'  --dsw-specific-bubble-image: var(--aether-bubble-img, none);',
 		'}',
 		// 会话头/标签行不再应用顶栏背景（顶栏背景只上「应用/编辑」条）
-		'html[data-dsh-aether] [data-conversation-tabs], html[data-dsh-aether] [data-aether-topbar] { background-image: none !important; }',
+		// 标题栏（对话标题 + 标签页）= 「标题栏」这一区，只贴在**整块 header** 上。
+		//
+		// 踩过的坑：
+		//  ① 原来这里写 background-image:none，等于把用户设的标题栏背景图强行清掉；
+		//  ② 后来改成同时贴 [data-conversation-tabs] 和 [data-aether-topbar]，
+		//     而标签行本身带着自己的 #22262F80 底色 → 一张图被画两遍、色也叠两层。
+		// 现在：图/色只给 header，标签行自身背景在这区启用时清空。
+		'html[data-dsh-aether] [data-aether-topbar] {',
+		'  background-color: var(--aether-topbar-bg, transparent) !important;',
+		'  background-image: linear-gradient(rgba(0, 0, 0, var(--aether-region-img-dim, 0)), rgba(0, 0, 0, var(--aether-region-img-dim, 0))), var(--aether-topbar-img, none) !important;',
+		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
+		'}',
+		// 这区启用时，标签行不要再自带底色（否则灰条压在图上，看起来"多叠了一层"）
+		'html[data-dsh-aether][data-aether-topbar-on="1"] [data-conversation-tabs] {',
+		'  background-color: transparent !important;',
+		'  background-image: none !important;',
+		'}',
 		// 遮罩层透明（只改样式；删除宿主 React 节点会让图片查看/切换会话卡死）
 		'html[data-dsh-aether] [data-aether-mask-clear="1"] { background-color: transparent !important; background-image: none !important; }',
 		// 设置/图片查看的遮罩层用的是硬编码 #00000080（不是 CSS 变量），
@@ -2204,8 +2250,11 @@ function setDecorPaused(paused, reason) {
 
 function decorShouldPause() {
 	try {
+		// 只看 document.hidden（最小化 / 切到别的窗口被完全遮挡那种）。
+		// **不要**看 document.hasFocus()：Electron 里它有大量误报——实测窗口明明
+		// 在最前面、用户正看着，hasFocus() 也返回 false，结果视频被永久 pause，
+		// 表现为「视频背景消失、变成无背景」。这个代价远大于省下的那点动画开销。
 		if (document.hidden) return true;
-		if (typeof document.hasFocus === 'function' && !document.hasFocus()) return true;
 	} catch (error) { /* ignore */ }
 	return false;
 }
@@ -2226,8 +2275,12 @@ function watchDecorPause() {
 		if (A.idle.watched) return;
 		A.idle.watched = true;
 		document.addEventListener('visibilitychange', function () { syncDecorPause('visibility'); });
-		window.addEventListener('blur', function () { syncDecorPause('blur'); });
 		window.addEventListener('focus', function () { syncDecorPause('focus'); });
+		// 任何一次真实交互都补一次续播：即使状态机被历史遗留的 pause 卡住也能自愈
+		var wake = function () { try { ensureVideoPlaying(); } catch (error) { /* ignore */ } };
+		window.addEventListener('pointerdown', wake, { passive: true });
+		window.addEventListener('keydown', wake, { passive: true });
+		window.addEventListener('focus', wake, { passive: true });
 		syncDecorPause('init');
 	} catch (error) { /* ignore */ }
 }
