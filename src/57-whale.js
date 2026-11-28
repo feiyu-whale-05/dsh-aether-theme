@@ -11,6 +11,10 @@ var WHALE = {
 	holder: null, canvas: null, ctx: null, raf: null, last: 0, startedAt: 0,
 	particles: [], width: 0, height: 0, dpr: 1, scale: 1, running: false,
 	mouse: { x: 0, y: 0 }, disposed: false, dark: true, sizePx: 0,
+	// 颜色缓存：把 (r,g,b,alpha) 各量化到 8/8/8/16 档，最多 8192 条定长字符串。
+	// Canvas 的 fillStyle 赋"同一个字符串"几乎零成本，而每帧拼 'rgba(...)' 字符串
+	// 再让它重新解析颜色是 Canvas 里最贵的操作之一（26fps × ~3000 粒子 ≈ 9.4 万次/秒）。
+	styleCache: [],
 };
 
 var WHALE_GRID = 60;
@@ -91,11 +95,18 @@ function whaleBuildParticles() {
 					var phi = Math.random() * Math.PI * 2;
 					var theta = Math.acos(2 * Math.random() - 1);
 					var rad = 3 * (0.4 + 0.6 * Math.random());
+					var index = WHALE.particles.length;
 					WHALE.particles.push({
 						x: x, y: y, opacity: a, edge: edge / 8,
 						sx: Math.sin(theta) * Math.cos(phi) * rad,
 						sy: Math.sin(theta) * Math.sin(phi) * rad,
 						sz: Math.cos(theta) * rad * 0.5,
+						// 预计算：每帧只做乘法/加法，不再调用 whaleHash（各含一次 Math.sin）
+						h1: whaleHash(index),
+						h2: whaleHash(index * 1.37 + 7),
+						ph53: index * 0.53,
+						ph71: index * 0.71,
+						ph37: index * 0.37,
 					});
 				}
 			}
@@ -138,10 +149,10 @@ function whaleDraw(assembly, time) {
 	for (var i = 0; i < WHALE.particles.length; i += 1) {
 		var p = WHALE.particles[i];
 		var loose = WHALE_LOOSE * (0.25 + 0.75 * p.edge) * assembly;
-		var px = p.x + whaleHash(i) * 0.05 * loose;
-		var py = p.y + whaleHash(i * 1.37 + 7) * 0.05 * loose;
-		px += Math.sin(time * 0.5 + i * 0.53) * 0.06 * loose;
-		py += Math.cos(time * 0.42 + i * 0.71) * 0.06 * loose;
+		var px = p.x + p.h1 * 0.05 * loose;
+		var py = p.y + p.h2 * 0.05 * loose;
+		px += Math.sin(time * 0.5 + p.ph53) * 0.06 * loose;
+		py += Math.cos(time * 0.42 + p.ph71) * 0.06 * loose;
 		var tail = whaleSmoothstep(0.5, 4.5, p.x) * WHALE_LOOSE * assembly;
 		py += Math.sin(time * 1.1 - p.x * 0.7) * 0.1 * tail;
 		px += Math.cos(time * 0.9 - p.x * 0.55) * 0.06 * tail;
@@ -155,7 +166,7 @@ function whaleDraw(assembly, time) {
 			if (dist < WHALE_MOUSE_RADIUS && dist > 0.001) {
 				var t = 1 - dist / WHALE_MOUSE_RADIUS;
 				var force = t * t * t * mouseEffect * WHALE_MOUSE_STRENGTH;
-				var angle = Math.sin(i * 0.37 + time * 0.5) * WHALE_MOUSE_DISTORT;
+				var angle = Math.sin(p.ph37 + time * 0.5) * WHALE_MOUSE_DISTORT;
 				var ca = Math.cos(angle);
 				var sa = Math.sin(angle);
 				var ux = mx / dist;
@@ -181,7 +192,18 @@ function whaleDraw(assembly, time) {
 		var g = Math.min(255, Math.round((bg * assembly + glow * 0.3) * vLight * 255));
 		var b = Math.min(255, Math.round((bb * assembly + glow * 0.5) * vLight * 255));
 		if (alpha <= 0.004) continue;
-		ctx.fillStyle = 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha.toFixed(3) + ')';
+		// 量化取缓存：颜色分量 8 档（步长 32）+ alpha 16 档，1~2px 粒子上不可分辨
+		var rq = (r >> 5) & 7;
+		var gq = (g >> 5) & 7;
+		var bq = (b >> 5) & 7;
+		var aq = alpha >= 1 ? 15 : (alpha * 15) | 0;
+		var index = ((((rq << 3) | gq) << 3 | bq) << 4) | aq;
+		var style = WHALE.styleCache[index];
+		if (style === undefined) {
+			style = 'rgba(' + ((rq << 5) + 16) + ',' + ((gq << 5) + 16) + ',' + ((bq << 5) + 16) + ',' + (((aq + 0.5) / 15).toFixed(3)) + ')';
+			WHALE.styleCache[index] = style;
+		}
+		ctx.fillStyle = style;
 		var sx = WHALE.width / 2 + px * WHALE.scale - size / 2;
 		var sy = WHALE.height / 2 - (py + breathe) * WHALE.scale - size / 2;
 		ctx.fillRect(sx, sy, size, size);
