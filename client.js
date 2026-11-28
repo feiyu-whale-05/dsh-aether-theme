@@ -33,6 +33,7 @@ window.__ModuleLoader__.load({
 				'section.wallpaper': '壁纸',
 				'section.glass': '玻璃',
 				'section.pixel': '像素',
+				'section.style': '样式',
 				'section.modules': '模块',
 				'section.pack': '主题包',
 				'section.diag': '诊断',
@@ -149,6 +150,7 @@ window.__ModuleLoader__.load({
 				'section.wallpaper': 'Wallpaper',
 				'section.glass': 'Glass',
 				'section.pixel': 'Pixel',
+				'section.style': 'Style',
 				'section.modules': 'Modules',
 				'section.pack': 'Theme pack',
 				'section.diag': 'Diagnostics',
@@ -295,7 +297,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.83';
+		var VERSION = '1.0.84';
 
 		var A = {
 			ctx: null,
@@ -831,8 +833,10 @@ window.__ModuleLoader__.load({
 					strongColor: '#ffe6a3', fontFamily: '', fontSize: 0,
 				},
 				bubble: { official: true, color: '#dbe7ff', opacity: 0.62 },
-				bubbleDecoration: { enabled: false, text: '🎀', image: '' },
+				bubbleDecoration: { enabled: false, text: '🎀', image: '', x: 0, y: -2 },
 				avatars: { enabled: false, user: '我', agent: 'AI', userImage: '', agentImage: '' },
+				// 自定义 CSS：global 为全局注入；六个区域各自一段（便于按区域调样式）
+				regionCss: { enabled: false, global: '', sidebar: '', input: '', bubble: '', topbar: '', titlebar: '', settings: '' },
 				panel: { scale: 1.15 },
 				meteor: { enabled: false, density: 1, hue: 222, maxDist: 160 },
 				userMd: { enabled: true },
@@ -1384,7 +1388,7 @@ window.__ModuleLoader__.load({
 				'.aeth-avatar-user { right:-38px; top:0px; background:rgba(65,118,230,.9); }',
 				'.aeth-avatar-agent { left:-40px; top:50%; margin-top:-15px; }',
 				// 用户气泡左下角装饰
-				'.aeth-bubble-deco { position:absolute; left:0px; bottom:-2px; font-size:17px; line-height:1; pointer-events:none; z-index:10; filter: drop-shadow(0 2px 5px rgba(0,0,0,.45)); user-select:none; }',
+				'.aeth-bubble-deco { position:absolute; left:var(--aether-deco-x, 0px); bottom:var(--aether-deco-y, -2px); font-size:17px; line-height:1; pointer-events:none; z-index:10; filter: drop-shadow(0 2px 5px rgba(0,0,0,.45)); user-select:none; }',
 				'.aeth-bubble-deco img { width:24px; height:24px; object-fit:contain; display:block; border-radius:6px; }',
 				'.aeth-tab { padding:5px 12px; border-radius:999px; border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.12)); background:transparent; color:var(--dsw-alias-label-secondary,#b6bec9); cursor:pointer; font-size:12px; }',
 				'.aeth-tab.on { color: var(--dsw-alias-label-primary,#fff); border-color: var(--aether-accent,#7aa2ff); background: color-mix(in srgb, var(--aether-accent,#7aa2ff) 16%, transparent); }',
@@ -2026,6 +2030,47 @@ window.__ModuleLoader__.load({
 					}
 				}
 			})();
+
+			// 气泡挂件坐标
+			var deco = A.cfg.bubbleDecoration || {};
+			setVar('--aether-deco-x', clamp(deco.x === undefined ? 0 : deco.x, -40, 120) + 'px');
+			setVar('--aether-deco-y', clamp(deco.y === undefined ? -2 : deco.y, -40, 120) + 'px');
+
+			// 自定义 CSS（全局 + 区域），注入独立 style 标签，关掉即移除
+			try {
+				var cssCfg = A.cfg.regionCss || {};
+				var styleEl = document.getElementById('dsh-aether-custom-css');
+				if (cssCfg.enabled === true) {
+					var parts = [];
+					if (cssCfg.global) parts.push('/* global */ ' + cssCfg.global);
+					var regionScope = {
+						sidebar: '[class*="sidebarCol"]',
+						input: '[data-aether-input-host]',
+						bubble: '[data-message-bubble]',
+						topbar: '[data-conversation-tabs], [data-aether-topbar]',
+						titlebar: '[data-aether-frame]::before',
+						settings: '[data-global-panel]',
+					};
+					Object.keys(regionScope).forEach(function (key) {
+						var body = cssCfg[key];
+						if (!body) return;
+						parts.push('/* ' + key + ' */ ' + String(body).replace(/\{\{self\}\}/g, regionScope[key]));
+					});
+					var cssText = parts.join(' ');
+					if (cssText) {
+						if (!styleEl) {
+							styleEl = document.createElement('style');
+							styleEl.id = 'dsh-aether-custom-css';
+							document.head.appendChild(styleEl);
+						}
+						if (styleEl.textContent !== cssText) styleEl.textContent = cssText;
+					} else if (styleEl) {
+						styleEl.remove();
+					}
+				} else if (styleEl) {
+					styleEl.remove();
+				}
+			} catch (error) { /* 自定义 CSS 出错不影响主题 */ }
 
 			var vars = {
 				'--aether-accent': palette.accent,
@@ -3486,7 +3531,52 @@ window.__ModuleLoader__.load({
 		// 分区：外观 / 壁纸 / 玻璃 / 像素 / 模块 / 主题包 / 诊断。
 		// 所有改动即时生效（applyAppearance），并以 600ms 防抖落盘（Host 原子写+备份）。
 
-		var PANEL_TABS = ['appearance', 'wallpaper', 'glass', 'pixel', 'modules', 'pack', 'diag'];
+		var PANEL_TABS = ['appearance', 'wallpaper', 'glass', 'pixel', 'style', 'modules', 'pack', 'diag'];
+
+		/** 图库选择弹层：从壁纸库的图片里挑一张（比手填 id 友好）。 */
+		function GalleryPicker() {
+			var state = react.useState(null);
+			var request = state[0];
+			var setRequest = state[1];
+			A.galleryPicker = setRequest;
+			if (!request) return null;
+			var images = (A.host.wallpapers || []).filter(function (w) { return !w.kind || w.kind === 'image'; });
+			return h('div', {
+				style: {
+					position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(10,12,16,.72)',
+					backdropFilter: 'blur(6px)', display: 'flex', flexDirection: 'column', padding: '12px', gap: '10px',
+				},
+				onClick: function () { setRequest(null); },
+			},
+				h('div', { className: 'aeth-row', style: { justifyContent: 'space-between' } },
+					h('b', null, request.title || '从图库选择'),
+					h('button', { type: 'button', className: 'aeth-btn', onClick: function () { setRequest(null); } }, '关闭'),
+				),
+				images.length
+					? h('div', {
+						className: 'aeth-grid',
+						style: { overflowY: 'auto', flex: '1 1 auto', alignContent: 'start' },
+						onClick: function (event) { event.stopPropagation(); },
+					},
+						images.map(function (item) {
+							var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(item.id) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
+							return h('div', {
+								key: item.id,
+								className: 'aeth-wall',
+								style: { cursor: 'pointer' },
+								onClick: function () {
+									try { request.onPick(item.id); } catch (error) { /* ignore */ }
+									setRequest(null);
+								},
+							},
+								h('img', { src: url, alt: '' }),
+								h('span', { className: 'aeth-badge' }, String(item.name || item.id).slice(0, 14)),
+							);
+						})
+					)
+					: h('div', { className: 'aeth-note' }, '图库还没有图片：先在「背景」页上传。'),
+			);
+		}
 
 		function row(label, control, extra) {
 			return h('div', { className: 'aeth-row' },
@@ -3711,6 +3801,8 @@ window.__ModuleLoader__.load({
 				tab === 'wallpaper' ? WallpaperTab(cfg, mutate, tick, uploadRef, uploadCategory, setUploadCategory, upload) : null,
 				tab === 'glass' ? GlassTab(cfg, mutate) : null,
 				tab === 'pixel' ? PixelTab(cfg, mutate) : null,
+				tab === 'style' ? StyleTab(cfg, mutate) : null,
+				GalleryPicker(),
 				tab === 'modules' ? ModulesTab(cfg, mutate) : null,
 				tab === 'pack'
 					? h('div', { className: 'aeth-card' },
@@ -3897,6 +3989,23 @@ window.__ModuleLoader__.load({
 								},
 								style: { flex: '1 1 80px', minWidth: '80px' },
 							}),
+							h('button', {
+								type: 'button',
+								className: 'aeth-btn',
+								style: { marginLeft: '4px' },
+								onClick: function () {
+									if (!A.galleryPicker) return;
+									A.galleryPicker({
+										title: '选择「' + pair[1] + '」背景图',
+										onPick: function (id) {
+											mutate(function (draft) {
+												draft.backgrounds = draft.backgrounds || {};
+												draft.backgrounds[key] = Object.assign({}, draft.backgrounds[key] || {}, { image: id, enabled: true });
+											}, { wallpaper: false });
+										},
+									});
+								},
+							}, '图库'),
 							h('label', {
 								className: 'aeth-btn',
 								title: '上传一张新图片作为该区域背景',
@@ -4028,6 +4137,22 @@ window.__ModuleLoader__.load({
 										setTimeout(function () { try { scanAvatars(); } catch (error) { /* ignore */ } }, 60);
 									},
 								}),
+								h('button', {
+									type: 'button', className: 'aeth-btn',
+									onClick: function () {
+										if (!A.galleryPicker) return;
+										A.galleryPicker({
+											title: '选择' + (side === 'user' ? '用户' : 'Agent') + '头像',
+											onPick: function (id) {
+												mutate(function (draft) {
+													draft.avatars = Object.assign({}, draft.avatars || {}, { enabled: true });
+													draft.avatars[side === 'user' ? 'userImage' : 'agentImage'] = id;
+												}, { wallpaper: false });
+												setTimeout(function () { try { scanAvatars(); } catch (error) { /* ignore */ } }, 80);
+											},
+										});
+									},
+								}, '图库'),
 								h('label', { className: 'aeth-btn', style: { cursor: 'pointer' } }, image ? '换图' : '用图片',
 									h('input', {
 										type: 'file', accept: 'image/*',
@@ -4122,6 +4247,21 @@ window.__ModuleLoader__.load({
 										setTimeout(function () { try { scanBubbleDeco(); } catch (error) { /* ignore */ } }, 60);
 									},
 								}),
+								h('button', {
+									type: 'button', className: 'aeth-btn',
+									onClick: function () {
+										if (!A.galleryPicker) return;
+										A.galleryPicker({
+											title: '选择气泡挂件图片',
+											onPick: function (id) {
+												mutate(function (draft) {
+													draft.bubbleDecoration = Object.assign({}, draft.bubbleDecoration || {}, { image: id, enabled: true });
+												}, { wallpaper: false });
+												setTimeout(function () { try { scanBubbleDeco(); } catch (error) { /* ignore */ } }, 80);
+											},
+										});
+									},
+								}, '图库'),
 								h('label', {
 									className: 'aeth-btn',
 									style: { cursor: 'pointer' },
@@ -4495,6 +4635,67 @@ window.__ModuleLoader__.load({
 							borderImageSlice: 3,
 						},
 					}, '不同分辨率下四角不变形：边框用 9-slice 贴图，中段拉伸。'),
+				),
+			);
+		}
+
+		/** 样式页：气泡挂件坐标可视化 + 区域/全局自定义 CSS。 */
+		function StyleTab(cfg, mutate) {
+			var deco = cfg.bubbleDecoration || {};
+			var css = cfg.regionCss || {};
+			var areaParts = [
+				['global', '全局 CSS'],
+				['sidebar', '侧边栏'],
+				['input', '对话输入框'],
+				['bubble', '用户气泡'],
+				['topbar', '顶栏'],
+				['titlebar', '标题栏'],
+				['settings', '设置页'],
+			];
+			function setCss(key, value) {
+				mutate(function (draft) {
+					draft.regionCss = Object.assign({}, draft.regionCss || {}, { enabled: true });
+					draft.regionCss[key] = value;
+				}, { wallpaper: false });
+			}
+			return h('div', null,
+				h('div', { className: 'aeth-card' },
+					h('h3', null, '用户气泡挂件坐标'),
+					h('div', { className: 'aeth-note', style: { marginBottom: '8px' } },
+						'实时生效。X 越大越靠右，Y 越大越靠上；挂件本身在「外观 → 用户气泡左下角装饰」里开关。'),
+					sliderRow('X 偏移', deco.x === undefined ? 0 : deco.x, -40, 120, 1, function (value) {
+						mutate(function (draft) {
+							draft.bubbleDecoration = Object.assign({}, draft.bubbleDecoration || {}, { x: value });
+						}, { wallpaper: false });
+					}, 'px'),
+					sliderRow('Y 偏移', deco.y === undefined ? -2 : deco.y, -40, 120, 1, function (value) {
+						mutate(function (draft) {
+							draft.bubbleDecoration = Object.assign({}, draft.bubbleDecoration || {}, { y: value });
+						}, { wallpaper: false });
+					}, 'px'),
+				),
+				h('div', { className: 'aeth-card' },
+					h('h3', null, '自定义 CSS'),
+					toggleRow('启用自定义 CSS', css.enabled === true, function (value) {
+						mutate(function (draft) {
+							draft.regionCss = Object.assign({}, draft.regionCss || {}, { enabled: value });
+						}, { wallpaper: false });
+					}),
+					h('div', { className: 'aeth-note', style: { margin: '6px 0 10px' } },
+						'区域块里写样式时可用 {{self}} 代指该区域的选择器，例如 {{self}} { border-radius: 18px; }。留空即不注入。'),
+					areaParts.map(function (pair) {
+						return h('div', { key: pair[0], style: { marginBottom: '10px' } },
+							h('label', { className: 'aeth-note', style: { display: 'block', marginBottom: '4px' } }, pair[1]),
+							h('textarea', {
+								className: 'aeth-input',
+								rows: pair[0] === 'global' ? 4 : 3,
+								spellCheck: false,
+								value: css[pair[0]] || '',
+								style: { width: '100%', fontFamily: 'Consolas, monospace', fontSize: '12px', resize: 'vertical' },
+								onInput: function (event) { setCss(pair[0], event.target.value); },
+							}),
+						);
+					}),
 				),
 			);
 		}
