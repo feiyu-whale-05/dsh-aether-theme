@@ -1020,6 +1020,13 @@ function scheduleScans() {
 			if (!A.ready) return;
 			if (SCAN_BUS.running) return;
 			SCAN_BUS.running = true;
+			if (A.cfg && A.cfg.enabled !== false && !A.canary.disabled) {
+				// 外壳标记：AppFrame（顶栏 ::before 的宿主）与顶栏行。
+				// 这两个函数以前定义了却从未被调用 —— 结果顶栏背景图/底色规则
+				// 因为没有宿主元素而完全不生效（"顶栏背景图不显示"的根因）。
+				try { tagAppFrame(); } catch (error) { /* ignore */ }
+				try { tagTopbar(); } catch (error) { /* ignore */ }
+			}
 			try { scanBubbleDeco(); } catch (error) { /* ignore */ }
 			try { scanAvatars(); } catch (error) { /* ignore */ }
 			SCAN_BUS.running = false;
@@ -1610,14 +1617,21 @@ function collectDiag() {
 			titlebarBg: (function () {
 				try {
 					var frame = document.querySelector('[data-aether-frame]');
-					if (!frame) return null;
-					var style = window.getComputedStyle(frame, '::before');
-					return {
-						frameClass: String(frame.className || '').slice(0, 40),
+					var out = {
+						frame: frame ? String(frame.className || '').slice(0, 40) : null,
+						// 宿主是否打了 Windows 标题栏标记：没有它，顶栏背景规则整条不生效
 						hasWindowTitlebar: document.documentElement.hasAttribute('data-windows-titlebar'),
-						image: String(style.backgroundImage || '').slice(0, 80),
-						topbarVar: String(window.getComputedStyle(document.documentElement).getPropertyValue('--aether-topbar-img') || '').slice(0, 80),
+						locate: A.frameDiag || null,
+						topbarVar: String(window.getComputedStyle(document.documentElement).getPropertyValue('--aether-topbar-img') || '').slice(0, 60),
+						titlebarVar: String(window.getComputedStyle(document.documentElement).getPropertyValue('--aether-titlebar-img') || '').slice(0, 60),
+						topbarBgVar: String(window.getComputedStyle(document.documentElement).getPropertyValue('--aether-topbar-bg') || '').slice(0, 40),
 					};
+					if (frame) {
+						var style = window.getComputedStyle(frame, '::before');
+						out.image = String(style.backgroundImage || '').slice(0, 60);
+						out.color = String(style.backgroundColor || '').slice(0, 40);
+					}
+					return out;
 				} catch (error) { return null; }
 			})(),
 			topbar: {
