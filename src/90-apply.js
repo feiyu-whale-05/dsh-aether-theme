@@ -189,6 +189,9 @@ var apply = function apply(ctx) {
 		window.addEventListener('focus', ensureVideoPlaying);
 		// 兜底检查并入低频总线（6s 一次，比原来 4s 更省）
 		idleEvery(6, ensureVideoPlaying);
+		// 媒体令牌有时效（Host 侧 12h）：挂着很久的页面靠这条低频续期，
+		// 否则第二天打开面板会发现壁纸缩略图全 401。
+		idleEvery(3600, function () { refreshMediaToken(); });
 	} catch (error) { /* ignore */ }
 
 	// 2.35) 气泡装饰观察器
@@ -219,6 +222,7 @@ var apply = function apply(ctx) {
 			ctx.effect(function () {
 				return function () {
 					try { idleStop(); } catch (error) { /* ignore */ }
+					try { scanStop(); } catch (error) { /* ignore */ }
 					try { if (A.applyRaf) cancelAnimationFrame(A.applyRaf); A.applyRaf = null; } catch (error) { /* ignore */ }
 					try { if (A.rotationTimer) clearInterval(A.rotationTimer); } catch (error) { /* ignore */ }
 					try { if (A.diagTimer) clearInterval(A.diagTimer); } catch (error) { /* ignore */ }
