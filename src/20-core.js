@@ -5,7 +5,7 @@
 
 var PANEL_ID = 'aether-theme';
 var STORAGE_KEY = 'dsh-aether:prefs:v1';
-var VERSION = '1.2.0';
+var VERSION = '1.3.0';
 
 var A = {
 	ctx: null,
@@ -1212,7 +1212,14 @@ function buildStyleText() {
 		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
 		'}',
 		// 「应用/编辑」顶栏 ::before：底色 + 额外暗化 + 背景图，一条规则写全（别再另起同名规则）
+		// 顶栏条：AppFrame 的 ::before 只覆盖顶部一条（高度由 JS 量出的 --aether-titlebar-h）。
+		// 以前没有定位，::before 会变成 grid 容器的匿名 grid item，压根不是"覆盖层"；
+		// 而一旦 AppFrame 被正确标记成全屏元素，铺满又会把整窗染一层色。
+		'html[data-dsh-aether] [data-aether-frame] { position: relative; }',
 		'html[data-windows-titlebar][data-dsh-aether] [data-aether-frame]::before {',
+		'  content: ""; position: absolute; top: 0; left: 0; right: 0;',
+		'  height: var(--aether-titlebar-h, 40px);',
+		'  pointer-events: none; z-index: 0;',
 		'  background-color: var(--aether-topbar-bg, var(--aether-titlebar-bg, var(--aether-chrome-fill))) !important;',
 		'  background-image: linear-gradient(rgba(0, 0, 0, var(--aether-titlebar-extra, .08)), rgba(0, 0, 0, var(--aether-titlebar-extra, .08))), var(--aether-topbar-img, var(--aether-titlebar-img, none)) !important;',
 		'  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;',
@@ -1640,6 +1647,245 @@ function startCanary() {
 	idleEvery(2, canaryTick);
 }
 
+// ── 侧栏结构探针 ─────────────────────────────────────────────────────────
+// 用来定位「收起后不显示官方窄栏」「按钮区遮挡会话列表时背景取错」这两个问题。
+// 只读 DOM + 计算样式，不改任何东西。
+function probeSidebar() {
+	var out = {};
+	try {
+		var pick = function (el) {
+			if (!el) return null;
+			var cs = window.getComputedStyle(el);
+			var r = el.getBoundingClientRect();
+			return {
+				cls: String(el.className || '').split(/\s+/).slice(0, 3).join('.').slice(0, 60),
+				rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
+				bg: cs.backgroundColor,
+				bgi: String(cs.backgroundImage || '').slice(0, 60),
+				opacity: cs.opacity,
+				display: cs.display,
+				visibility: cs.visibility,
+				pos: cs.position,
+				z: cs.zIndex,
+				bd: (cs.backdropFilter && cs.backdropFilter !== 'none') ? cs.backdropFilter : null,
+				overflow: cs.overflow,
+			};
+		};
+		var sidebars = Array.prototype.slice.call(document.querySelectorAll('[class*="sidebar"], [class*="Sidebar"]'));
+		// 只留面积较大的前 8 个，避免把一堆小按钮也报上来
+		sidebars.sort(function (a, b) {
+			var ra = a.getBoundingClientRect();
+			var rb = b.getBoundingClientRect();
+			return (rb.width * rb.height) - (ra.width * ra.height);
+		});
+		out.nodes = sidebars.slice(0, 8).map(pick);
+
+		var root = document.documentElement;
+		var cs = window.getComputedStyle(root);
+		out.vars = {
+			sidebarFill: String(window.getComputedStyle(document.body).getPropertyValue('--dsw-specific-sidebar-fill') || '').trim(),
+			aetherSidebarBg: cs.getPropertyValue('--aether-sidebar-bg').trim(),
+			aetherSidebarImg: cs.getPropertyValue('--aether-sidebar-img').trim().slice(0, 60),
+			chromeFill: cs.getPropertyValue('--aether-chrome-fill').trim(),
+			sidebarImgVar: cs.getPropertyValue('--aether-sidebar-img').trim() ? 'set' : 'empty',
+		};
+
+		// 收起态判定：侧栏列宽度
+		var col = document.querySelector('[class*="sidebarCol"]');
+		out.collapsed = col ? col.getBoundingClientRect().width < 120 : null;
+		out.colWidth = col ? Math.round(col.getBoundingClientRect().width) : null;
+
+		// 官方「侧栏收起」相关 CSS 规则（判断收起后是否存在 rail 宽度）
+		out.collapseCss = (function () {
+			var hits = [];
+			try {
+				for (var i = 0; i < document.styleSheets.length && hits.length < 12; i += 1) {
+					var sheet = document.styleSheets[i];
+					var rules = null;
+					try { rules = sheet.cssRules; } catch (error) { continue; }
+					if (!rules) continue;
+					for (var j = 0; j < rules.length && hits.length < 12; j += 1) {
+						var text = String(rules[j].cssText || '');
+						if (text.indexOf('sidebar-collapsed') === -1) continue;
+						hits.push(text.replace(/\s+/g, ' ').slice(0, 200));
+					}
+				}
+			} catch (error) { /* ignore */ }
+			return hits;
+		})();
+
+		// 其它插件在根节点上的标记（例如 sidebar-tidy 的 st-ml-on 移动布局）
+		out.marks = {
+			html: String(document.documentElement.className || '').slice(0, 120),
+			body: String(document.body.className || '').slice(0, 80),
+			frame: (function () {
+				var f = document.querySelector('[class*="_frame"]');
+				return f ? String(f.className || '').slice(0, 120) : null;
+			})(),
+			sidebarCollapsed: document.querySelectorAll('[data-sidebar-collapsed]').length,
+			collapsedAttr: (function () {
+				var el = document.querySelector('[data-sidebar-collapsed]');
+				return el ? [String(el.className || '').slice(0, 40), el.getAttribute('data-sidebar-collapsed')] : null;
+			})(),
+			opener: (function () {
+				var b = document.querySelector('[data-sidebar-opener]');
+				if (!b) return null;
+				var r = b.getBoundingClientRect();
+				var cs = window.getComputedStyle(b);
+				return {
+					rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
+					visibility: cs.visibility,
+					display: cs.display,
+					opacity: cs.opacity,
+					parentLeading: Boolean(b.closest('[data-shell-leading]')),
+					leadingPointerEvents: b.closest('[data-shell-leading]')
+						? window.getComputedStyle(b.closest('[data-shell-leading]')).pointerEvents : null,
+				};
+			})(),
+			bgPatch: (function () {
+				var el = document.querySelector('.st-bg-patch');
+				if (!el) return null;
+				var r = el.getBoundingClientRect();
+				var fill = el.querySelector('.st-bg-patch-fill');
+				return {
+					rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
+					clip: String(getComputedStyle(el).clipPath || '').slice(0, 60),
+					stageChildren: (el.querySelector('.st-bg-patch-stage') || { children: [] }).children.length,
+					fillBg: fill ? window.getComputedStyle(fill).backgroundColor : null,
+				};
+			})(),
+		};
+
+		// #root 往下三层的结构（找出 AppFrame / 布局容器）
+		out.tree = (function () {
+			var root = document.getElementById('root');
+			if (!root) return null;
+			var walk = function (node, depth) {
+				if (!node || depth > 2) return [];
+				var arr = [pick(node)];
+				var kids = Array.prototype.slice.call(node.children).slice(0, 6);
+				for (var i = 0; i < kids.length; i += 1) arr = arr.concat(walk(kids[i], depth + 1));
+				return arr;
+			};
+			return walk(root.firstElementChild, 0);
+		})();
+
+		// 侧栏内的按钮清单（用于按坐标点「收起」，以及判断按钮区背景）
+		out.buttons = (function () {
+			if (!col) return [];
+			var bs = Array.prototype.slice.call(col.querySelectorAll('button, [role="button"]'));
+			return bs.slice(0, 12).map(function (b) {
+				var r = b.getBoundingClientRect();
+				var cs = window.getComputedStyle(b);
+				return {
+					cls: String(b.className || '').split(/\s+/).slice(0, 2).join('.').slice(0, 46),
+					label: String(b.getAttribute('aria-label') || b.title || (b.textContent || '').trim()).slice(0, 20),
+					rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
+					bg: cs.backgroundColor,
+				};
+			});
+		})();
+
+		// 侧栏内部所有"有盒子"的元素：收起态窄栏如果由侧栏自己渲染，一定在这里
+		out.inner = (function () {
+			if (!col) return [];
+			var all = Array.prototype.slice.call(col.querySelectorAll('*'));
+			var hits = [];
+			for (var i = 0; i < all.length; i += 1) {
+				var r = all[i].getBoundingClientRect();
+				if (r.width < 4 || r.height < 4) continue;
+				hits.push({ el: all[i], r: r });
+			}
+			hits.sort(function (a, b) { return (a.r.left - b.r.left) || (a.r.top - b.r.top); });
+			return hits.slice(0, 16).map(function (h) {
+				var cs = window.getComputedStyle(h.el);
+				return {
+					cls: String(h.el.className || '').split(/\s+/).slice(0, 2).join('.').slice(0, 46),
+					rect: [Math.round(h.r.left), Math.round(h.r.top), Math.round(h.r.width), Math.round(h.r.height)],
+					bg: cs.backgroundColor,
+					pos: cs.position,
+				};
+			});
+		})();
+
+		// 左半屏所有"有面积"的元素：收起后的窄栏如果存在，一定在这里
+		out.leftColumn = (function () {
+			var all = Array.prototype.slice.call(document.querySelectorAll('body *'));
+			var hits = [];
+			for (var i = 0; i < all.length; i += 1) {
+				var el = all[i];
+				var r = el.getBoundingClientRect();
+				if (r.height < 24) continue;
+				if (r.left > 420) continue;
+				if (r.width <= 0) continue;
+				hits.push({ el: el, r: r });
+			}
+			hits.sort(function (a, b) { return (a.r.width - b.r.width) || (a.r.left - b.r.left); });
+			return hits.slice(0, 14).map(function (h) {
+				var cs = window.getComputedStyle(h.el);
+				return {
+					cls: String(h.el.className || '').split(/\s+/).slice(0, 2).join('.').slice(0, 50),
+					rect: [Math.round(h.r.left), Math.round(h.r.top), Math.round(h.r.width), Math.round(h.r.height)],
+					bg: cs.backgroundColor,
+					ov: cs.overflow,
+					vis: cs.visibility,
+					op: cs.opacity,
+				};
+			});
+		})();
+	} catch (error) {
+		out.error = String((error && error.message) || error).slice(0, 120);
+	}
+	return out;
+}
+
+/**
+ * 收起/展开双态侧栏审计（诊断用，只在 diag.auditSidebar === true 时跑一次）。
+ * 目的：定位「收起后没有官方窄栏」——需要知道收起态下到底还有哪些元素有盒子。
+ * 会自己点一次官方的收起按钮再点回来，所以默认关闭。
+ */
+function runSidebarAudit() {
+	try {
+		var toggle = null;
+		var cands = Array.prototype.slice.call(document.querySelectorAll('button'));
+		for (var i = 0; i < cands.length; i += 1) {
+			var cls = String(cands[i].className || '');
+			if (/toggle/i.test(cls) || /收起|展开|collapse/i.test(String(cands[i].getAttribute('aria-label') || ''))) {
+				toggle = cands[i];
+				break;
+			}
+		}
+		if (!toggle) { A.sidebarAudit = { error: 'no toggle button' }; return; }
+		var expanded = probeSidebar();
+		A.sidebarAudit = { expanded: expanded, collapsed: null, stage: 'clicking' };
+		toggle.click();
+		// 收起动画约 200~300ms，但宽屏下内容重排更慢；等 1800ms 再采，避免采到中间态
+		setTimeout(function () {
+			try {
+				A.sidebarAudit.collapsed = probeSidebar();
+				A.sidebarAudit.stage = 'restoring';
+				// 再补一次 600ms 后的采样，用来分辨"动画未结束"和"真的收起了"
+				setTimeout(function () {
+					try { A.sidebarAudit.collapsedLate = probeSidebar(); } catch (error) { /* ignore */ }
+				}, 600);
+				// 收回原状：再点一次同一个按钮（元素可能已被重建，重新找）
+				var again = null;
+				var cands2 = Array.prototype.slice.call(document.querySelectorAll('button'));
+				for (var j = 0; j < cands2.length; j += 1) {
+					if (/toggle/i.test(String(cands2[j].className || ''))) { again = cands2[j]; break; }
+				}
+				if (again) again.click();
+				A.sidebarAudit.stage = 'done';
+				reportDiag('sidebar-audit');
+			} catch (error) {
+				A.sidebarAudit.error = String((error && error.message) || error).slice(0, 120);
+			}
+		}, 1800);
+	} catch (error) {
+		A.sidebarAudit = { error: String((error && error.message) || error).slice(0, 120) };
+	}
+}
+
 // ── 媒体链路探针 ─────────────────────────────────────────────────────────
 // 桌面版跑在 dsh-app:// 自定义协议下，<video>/<img> 的 401 只会表现成
 // 「解码器打不开」，看不出是 URL、令牌还是协议层丢查询串。
@@ -1831,6 +2077,16 @@ function collectDiag() {
 			pressTarget: A.pressDebug || null,
 			pressApplied: A.pressApplied || null,
 			layout: probeLayout(),
+			sidebar: probeSidebar(),
+			sidebarAudit: (function () {
+				// 懒触发：apply() 早期 A.cfg 还是缓存值，拿不到这个开关
+				try {
+					if (!A.sidebarAudit && A.cfg && A.cfg.diag && A.cfg.diag.auditSidebar === true) {
+						setTimeout(function () { try { runSidebarAudit(); } catch (error) { /* ignore */ } }, 50);
+					}
+				} catch (error) { /* ignore */ }
+				return A.sidebarAudit || null;
+			})(),
 			// 媒体链路探针改为手动触发（window.__DSH_AETHER_THEME__.probeMedia()）：
 			// dsh-app:// 下对媒体流的 fetch 会悬挂、abort 不一定回调，
 			// 放在每 60s 的自动上报里只会让 diag 里这一项永远是 null。
@@ -2000,7 +2256,23 @@ function toast(text, ms) {
 	}
 }
 
+/**
+ * 临时抑制面板重渲染。
+ * 拖滑杆时每帧 notify 会把 3170 节点的面板整树重渲染（实测 5.6ms/次、16.9fps）。
+ * CSS 变量本来就在 applyAppearance 里实时写了，所以拖动期间可以先不 notify，
+ * 松手时再补一次。
+ */
+function quietNotifyBegin() {
+	A.quietNotify = (A.quietNotify || 0) + 1;
+}
+
+function quietNotifyEnd() {
+	A.quietNotify = Math.max(0, (A.quietNotify || 0) - 1);
+	if (A.quietNotify === 0) notify();
+}
+
 function notify() {
+	if (A.quietNotify > 0) return;
 	A.subscribers.slice().forEach(function (fn) {
 		try { fn(); } catch (error) { /* 单个订阅者出错不影响其他 */ }
 	});
