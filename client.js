@@ -1318,6 +1318,13 @@ window.__ModuleLoader__.load({
 					if (!A.ready) return;
 					if (SCAN_BUS.running) return;
 					SCAN_BUS.running = true;
+					if (A.cfg && A.cfg.enabled !== false && !A.canary.disabled) {
+						// 外壳标记：AppFrame（顶栏 ::before 的宿主）与顶栏行。
+						// 这两个函数以前定义了却从未被调用 —— 结果顶栏背景图/底色规则
+						// 因为没有宿主元素而完全不生效（"顶栏背景图不显示"的根因）。
+						try { tagAppFrame(); } catch (error) { /* ignore */ }
+						try { tagTopbar(); } catch (error) { /* ignore */ }
+					}
 					try { scanBubbleDeco(); } catch (error) { /* ignore */ }
 					try { scanAvatars(); } catch (error) { /* ignore */ }
 					SCAN_BUS.running = false;
@@ -1908,14 +1915,21 @@ window.__ModuleLoader__.load({
 					titlebarBg: (function () {
 						try {
 							var frame = document.querySelector('[data-aether-frame]');
-							if (!frame) return null;
-							var style = window.getComputedStyle(frame, '::before');
-							return {
-								frameClass: String(frame.className || '').slice(0, 40),
+							var out = {
+								frame: frame ? String(frame.className || '').slice(0, 40) : null,
+								// 宿主是否打了 Windows 标题栏标记：没有它，顶栏背景规则整条不生效
 								hasWindowTitlebar: document.documentElement.hasAttribute('data-windows-titlebar'),
-								image: String(style.backgroundImage || '').slice(0, 80),
-								topbarVar: String(window.getComputedStyle(document.documentElement).getPropertyValue('--aether-topbar-img') || '').slice(0, 80),
+								locate: A.frameDiag || null,
+								topbarVar: String(window.getComputedStyle(document.documentElement).getPropertyValue('--aether-topbar-img') || '').slice(0, 60),
+								titlebarVar: String(window.getComputedStyle(document.documentElement).getPropertyValue('--aether-titlebar-img') || '').slice(0, 60),
+								topbarBgVar: String(window.getComputedStyle(document.documentElement).getPropertyValue('--aether-topbar-bg') || '').slice(0, 40),
 							};
+							if (frame) {
+								var style = window.getComputedStyle(frame, '::before');
+								out.image = String(style.backgroundImage || '').slice(0, 60);
+								out.color = String(style.backgroundColor || '').slice(0, 40);
+							}
+							return out;
 						} catch (error) { return null; }
 					})(),
 					topbar: {
@@ -2586,30 +2600,74 @@ window.__ModuleLoader__.load({
 		}
 
 		/** 标记 AppFrame 根（#root 下第一个 div），用于消掉 Windows 标题栏的双层半透明。 */
+		/**
+		 * 给「AppFrame」打标记（宿主 .frame::before 就是它的标题栏背景层）。
+		 *
+		 * 历史坑：旧实现盲目取 #root.firstElementChild；结构一变就标错元素，
+		 * 结果 .frame::before 根本不存在 → 顶栏背景图永远不显示。
+		 * 现在按「离 sidebarCol 最近的、#root 的直接子元素」定位，并保留两级兜底。
+		 * 同时把定位过程写进 A.frameDiag，供诊断页/日志判断到底标到了谁。
+		 */
 		function tagAppFrame() {
 			try {
+				var diag = { marked: null, why: '', sidebar: false, rootChild: null, before: null };
+				A.frameDiag = diag;
 				var root = document.getElementById('root');
-				if (!root) return;
-				// 必须是「真正的 AppFrame」：它包含侧栏列（sidebarCol）。
-				// 之前盲目取 #root.firstElementChild，若结构变化就标错元素，
-				// 宿主 .frame::before（标题栏背景层）不存在 → 标题栏图永远不显示。
+				if (!root) { diag.why = 'no #root'; return; }
+
 				var marked = null;
-				var candidates = root.querySelectorAll('[class*="frame"], [class*="Frame"]');
-				for (var i = 0; i < candidates.length; i += 1) {
-					var node = candidates[i];
-					if (node.id === 'root') continue;
-					if (node.querySelector('[class*="sidebarCol"], [class*="sidebar"]')) { marked = node; break; }
+				var sidebar = document.querySelector('[class*="sidebarCol"], [class*="sidebar"]');
+				diag.sidebar = Boolean(sidebar);
+
+				// ① 从侧栏往上走，取 #root 的直接子元素 —— AppFrame 必然是它
+				if (sidebar) {
+					var node = sidebar;
+					var guard = 0;
+					while (node && node.parentElement && node.parentElement !== root && guard < 40) {
+						node = node.parentElement;
+						guard += 1;
+					}
+					if (node && node.parentElement === root) {
+						marked = node;
+						diag.why = 'sidebar→rootChild';
+					}
 				}
-				if (!marked && root.firstElementChild
-					&& root.firstElementChild.querySelector('[class*="sidebarCol"], [class*="sidebar"]')) {
+
+				// ② 兜底：类名像 frame 且内部有侧栏
+				if (!marked) {
+					var candidates = root.querySelectorAll('[class*="frame"], [class*="Frame"]');
+					for (var i = 0; i < candidates.length; i += 1) {
+						if (candidates[i].id === 'root') continue;
+						if (candidates[i].querySelector('[class*="sidebarCol"], [class*="sidebar"]')) {
+							marked = candidates[i];
+							diag.why = 'class-like-frame';
+							break;
+						}
+					}
+				}
+
+				// ③ 最后兜底：第一个子元素（并在诊断里标出，便于定位）
+				if (!marked && root.firstElementChild) {
 					marked = root.firstElementChild;
+					diag.why = 'firstElementChild';
 				}
+
 				// 清理旧标记（避免残留到错误元素上）
 				document.querySelectorAll('[data-aether-frame]').forEach(function (node) {
 					if (node !== marked) { try { node.removeAttribute('data-aether-frame'); } catch (error) { /* ignore */ } }
 				});
 				if (marked && marked.getAttribute('data-aether-frame') !== '1') marked.setAttribute('data-aether-frame', '1');
-			} catch (error) { /* ignore */ }
+
+				diag.marked = marked ? String(marked.className || '').slice(0, 60) : null;
+				diag.rootChild = root.firstElementChild ? String(root.firstElementChild.className || '').slice(0, 60) : null;
+				if (marked) {
+					try {
+						diag.before = String(window.getComputedStyle(marked, '::before').backgroundImage || '').slice(0, 60);
+					} catch (error) { diag.before = 'err'; }
+				}
+			} catch (error) {
+				try { A.frameDiag = { why: 'throw:' + String(error && error.message).slice(0, 60) }; } catch (ignore) { /* ignore */ }
+			}
 		}
 
 		function aliasCode(alpha) {
@@ -6133,6 +6191,10 @@ window.__ModuleLoader__.load({
 				// 否则第二天打开面板会发现壁纸缩略图全 401。
 				idleEvery(3600, function () { refreshMediaToken(); });
 			} catch (error) { /* ignore */ }
+
+			// 2.34b) 首屏外壳标记：顶栏 ::before 的宿主必须尽早打上，
+			// 否则「应用/编辑」那条的底色/背景图要等第一次 250ms 扫描才出现。
+			try { tagAppFrame(); tagTopbar(); } catch (error) { /* ignore */ }
 
 			// 2.35) 气泡装饰观察器
 			try { startBubbleDeco(); } catch (error) { /* ignore */ }
