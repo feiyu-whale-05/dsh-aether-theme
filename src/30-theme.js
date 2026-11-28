@@ -223,8 +223,11 @@ function applyAppearanceNow(reason) {
 				try { node.remove(); } catch (error) { /* ignore */ }
 			});
 		} catch (error) { /* ignore */ }
+		// 头像停用后还要抹掉状态行标记，否则 DOM 上留着 data-aether-status
+		try { clearAvatarMarks(); } catch (error) { /* ignore */ }
 		try { clearTopbarMark(); } catch (error) { /* ignore */ }
 		try { clearMaskMarks(); } catch (error) { /* ignore */ }
+		try { scanStop(); } catch (error) { /* ignore */ }
 		try {
 			document.documentElement.removeAttribute('data-dsh-aether');
 			document.documentElement.removeAttribute('data-dsh-aether-pixel');
@@ -347,7 +350,7 @@ function applyAppearanceNow(reason) {
 			}
 			// 分区背景图：选了壁纸库里的图片就挂上，否则清掉
 			if (item && item.image) {
-				var url = A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(item.image) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
+				var url = mediaUrl(item.image);
 				setVar(imgName, 'url("' + url + '")');
 			} else {
 				clearVar(imgName);
@@ -458,13 +461,18 @@ function applyAppearanceNow(reason) {
 	} catch (error) { /* ignore */ }
 
 	try {
-		// 用户气泡：默认官方，只有显式关掉 official 才接管
+		// 用户气泡：默认官方样式（宿主主题自己决定底色）。
+		// 只有两种情况才接管：① 显式关掉 bubble.official；② 开了分区背景里的"气泡"。
 		var bubble = A.cfg.bubble || { official: true, color: '#dbe7ff' };
+		var bubbleRegion = (A.cfg.backgrounds && A.cfg.backgrounds.bubble) || null;
+		var bubbleRegionOn = Boolean(bubbleRegion && bubbleRegion.enabled === true);
 		if (bubble.official === false) {
-			document.documentElement.setAttribute('data-aether-bubble', 'custom');
 			var bubbleColor = parseColor(bubble.color || '#dbe7ff');
 			setVar('--aether-bubble-fill', rgba(bubbleColor, clamp(bubble.opacity === undefined ? 0.62 : bubble.opacity, 0.1, 1)));
 			setVar('--aether-bubble-highlight', rgba(shiftColor(bubbleColor, 0.15), 0.8));
+		}
+		if (bubble.official === false || bubbleRegionOn) {
+			document.documentElement.setAttribute('data-aether-bubble', 'custom');
 		} else {
 			document.documentElement.removeAttribute('data-aether-bubble');
 		}
@@ -554,14 +562,16 @@ function applyAppearanceNow(reason) {
 		setVar('--aether-bg-blur', '0px');
 	}
 
+	// 尾部不再做"全量 DOM 扫描"：applyAppearance 由滑杆每帧触发（rAF 合并），
+	// 而 scanBubbleDeco / scanAvatars 是 O(全文档) 的 querySelectorAll，
+	// 放在这里等于拖动滑杆时每秒 120 次全量扫描 —— "拖滑杆卡顿"的直接原因。
+	// 它们的输入只有与配置或 DOM，改为：配置变更时由 scheduleScans() 250ms 防抖单次触发，
+	// DOM 变更由 watchDom 总线触发。
 	try { syncFx(); } catch (error) { /* ignore */ }
 	try { syncWhale(); } catch (error) { /* ignore */ }
 	try { syncGlowPress(); } catch (error) { /* ignore */ }
 	try { syncMeteor(); } catch (error) { /* ignore */ }
-	try { syncFx(); } catch (error) { /* ignore */ }
-	try { syncWhale(); } catch (error) { /* ignore */ }
-	try { scanBubbleDeco(); } catch (error) { /* ignore */ }
-	try { scanAvatars(); } catch (error) { /* ignore */ }
+	try { scheduleScans(); } catch (error) { /* ignore */ }
 
 	pushLog('info', '外观已应用', {
 		reason: reason,
@@ -634,7 +644,7 @@ function wallpaperUrlFor(config) {
 	if (!config) return '';
 	if (config.mode === 'image') {
 		if (config.source === 'file' && config.id) {
-			return A.apiBase + '/api/wallpaper?id=' + encodeURIComponent(config.id) + (A.token ? '&token=' + encodeURIComponent(A.token) : '');
+			return mediaUrl(config.id);
 		}
 		return config.presetUrl || '';
 	}
