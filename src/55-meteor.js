@@ -50,10 +50,64 @@ function meteorSpawn(x, y, dx, dy) {
 	if (METEOR.running && METEOR.raf === null) METEOR.raf = requestAnimationFrame(meteorTick);
 }
 
+/**
+ * 预渲染的粒子 sprite。
+ *
+ * 旧实现每个粒子每一帧都 `ctx.createRadialGradient()` + 3 次 `addColorStop`，
+ * 真实桌面 2560×1393 下指针一移动就是每帧几十次渐变对象分配
+ * （软件光栅实测 80 次移动/4 秒 → 3848ms 主线程、9 个 long task）。
+ *
+ * 现在按 (hue 桶, size 桶) 预渲染成离屏 canvas，绘制时只改 globalAlpha + drawImage。
+ * 亮度衰减/色相偏移用三段近似：在同一张 sprite 里叠 3 个同色不同 alpha 的圆。
+ */
+var METEOR_SPRITE = { cache: Object.create(null), hueBucket: 6 };
+
+function meteorSpriteFor(hue, size) {
+	var hueKey = Math.round(hue / METEOR_SPRITE.hueBucket) * METEOR_SPRITE.hueBucket;
+	var sizeKey = Math.max(1, Math.round(size));
+	var key = hueKey + ':' + sizeKey;
+	var hit = METEOR_SPRITE.cache[key];
+	if (hit) return hit;
+
+	var radius = sizeKey * 4;
+	var px = Math.max(2, Math.ceil(radius * 2));
+	var canvas = document.createElement('canvas');
+	canvas.width = px;
+	canvas.height = px;
+	var c = canvas.getContext('2d');
+	if (c) {
+		var cx = px / 2;
+		var cy = px / 2;
+		var layers = [
+			[radius, 'hsla(' + hueKey + ',100%,76%,1)'],
+			[radius * 0.62, 'hsla(' + (hueKey + 18) + ',100%,64%,1)'],
+			[radius * 0.30, 'hsla(' + (hueKey + 30) + ',100%,60%,0.9)'],
+		];
+		c.globalCompositeOperation = 'lighter';
+		for (var i = 0; i < layers.length; i += 1) {
+			var g = c.createRadialGradient(cx, cy, 0, cx, cy, layers[i][0]);
+			g.addColorStop(0, layers[i][1]);
+			g.addColorStop(0.55, layers[i][1].replace(/,1\)$/, ',0.45)').replace(/,0\.9\)$/, ',0.4)'));
+			g.addColorStop(1, layers[i][1].replace(/,1\)$/, ',0)').replace(/,0\.9\)$/, ',0)'));
+			c.fillStyle = g;
+			c.beginPath();
+			c.arc(cx, cy, layers[i][0], 0, Math.PI * 2);
+			c.fill();
+		}
+	}
+	METEOR_SPRITE.cache[key] = canvas;
+	return canvas;
+}
+
 function meteorTick() {
 	if (!METEOR.running) { METEOR.raf = null; return; }
 	var ctx = METEOR.ctx;
 	if (!ctx) { METEOR.raf = null; return; }
+	// 失焦/不可见时不画（指针也不会动，粒子只是淡出占位）
+	if (A.idle && A.idle.paused) {
+		METEOR.raf = requestAnimationFrame(meteorTick);
+		return;
+	}
 	// 空闲停帧：没有粒子时不占 rAF（之前即使静止也每秒空转 60 次）
 	if (METEOR.particles.length === 0) {
 		ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
@@ -84,14 +138,13 @@ function meteorTick() {
 			continue;
 		}
 		var alpha = Math.max(0, p.life) * 0.62;
-		var gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 4);
-		gradient.addColorStop(0, 'hsla(' + p.hue + ', 100%, 76%, ' + alpha + ')');
-		gradient.addColorStop(0.45, 'hsla(' + (p.hue + 18) + ', 100%, 64%, ' + (alpha * 0.6) + ')');
-		gradient.addColorStop(1, 'hsla(' + (p.hue + 30) + ', 100%, 60%, 0)');
-		ctx.fillStyle = gradient;
-		ctx.beginPath();
-		ctx.arc(p.x, p.y, p.size * 4, 0, Math.PI * 2);
-		ctx.fill();
+		if (alpha <= 0.004) continue;
+		// sprite 预渲染 + drawImage：不再每帧分配渐变、不再重新解析颜色
+		var sprite = meteorSpriteFor(p.hue, p.size);
+		var half = sprite.width / 2;
+		ctx.globalAlpha = alpha;
+		ctx.drawImage(sprite, p.x - half, p.y - half);
+		ctx.globalAlpha = 1;
 	}
 	ctx.globalCompositeOperation = 'source-over';
 	METEOR.raf = requestAnimationFrame(meteorTick);
@@ -159,6 +212,8 @@ function stopMeteor() {
 	}
 	METEOR.ctx = null;
 	METEOR.particles = [];
+	// 释放预渲染 sprite，避免长时间挂着占显存
+	try { METEOR_SPRITE.cache = Object.create(null); } catch (error) { /* ignore */ }
 }
 
 function syncMeteor() {
