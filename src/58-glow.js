@@ -176,9 +176,9 @@ function pressApply() {
 	PRESS.raf = null;
 	var pane = PRESS.current;
 	if (!pane || !pressTiltable(pane)) return;
-	// 侧栏与输入框用同一套 tilt 参数；但侧栏里有 position:fixed 后代时，
-	// transform 会创建包含块把它们挤出原位 —— 这种情况退回内阴影。
-	if (pressIsSidebar(pane) && pressHasFixedChild(pane)) {
+	// 侧栏一律用内阴影：任何 transform 都会创建包含块，把侧栏里 position:fixed 的
+	// 收起/展开按钮拉进侧栏坐标系（应固定在顶栏）。视觉按压感由内阴影承担。
+	if (pressIsSidebar(pane)) {
 		pressSoftDown(pane, true);
 		return;
 	}
