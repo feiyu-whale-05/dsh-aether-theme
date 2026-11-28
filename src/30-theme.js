@@ -585,30 +585,74 @@ function applyAppearanceNow(reason) {
 }
 
 /** 标记 AppFrame 根（#root 下第一个 div），用于消掉 Windows 标题栏的双层半透明。 */
+/**
+ * 给「AppFrame」打标记（宿主 .frame::before 就是它的标题栏背景层）。
+ *
+ * 历史坑：旧实现盲目取 #root.firstElementChild；结构一变就标错元素，
+ * 结果 .frame::before 根本不存在 → 顶栏背景图永远不显示。
+ * 现在按「离 sidebarCol 最近的、#root 的直接子元素」定位，并保留两级兜底。
+ * 同时把定位过程写进 A.frameDiag，供诊断页/日志判断到底标到了谁。
+ */
 function tagAppFrame() {
 	try {
+		var diag = { marked: null, why: '', sidebar: false, rootChild: null, before: null };
+		A.frameDiag = diag;
 		var root = document.getElementById('root');
-		if (!root) return;
-		// 必须是「真正的 AppFrame」：它包含侧栏列（sidebarCol）。
-		// 之前盲目取 #root.firstElementChild，若结构变化就标错元素，
-		// 宿主 .frame::before（标题栏背景层）不存在 → 标题栏图永远不显示。
+		if (!root) { diag.why = 'no #root'; return; }
+
 		var marked = null;
-		var candidates = root.querySelectorAll('[class*="frame"], [class*="Frame"]');
-		for (var i = 0; i < candidates.length; i += 1) {
-			var node = candidates[i];
-			if (node.id === 'root') continue;
-			if (node.querySelector('[class*="sidebarCol"], [class*="sidebar"]')) { marked = node; break; }
+		var sidebar = document.querySelector('[class*="sidebarCol"], [class*="sidebar"]');
+		diag.sidebar = Boolean(sidebar);
+
+		// ① 从侧栏往上走，取 #root 的直接子元素 —— AppFrame 必然是它
+		if (sidebar) {
+			var node = sidebar;
+			var guard = 0;
+			while (node && node.parentElement && node.parentElement !== root && guard < 40) {
+				node = node.parentElement;
+				guard += 1;
+			}
+			if (node && node.parentElement === root) {
+				marked = node;
+				diag.why = 'sidebar→rootChild';
+			}
 		}
-		if (!marked && root.firstElementChild
-			&& root.firstElementChild.querySelector('[class*="sidebarCol"], [class*="sidebar"]')) {
+
+		// ② 兜底：类名像 frame 且内部有侧栏
+		if (!marked) {
+			var candidates = root.querySelectorAll('[class*="frame"], [class*="Frame"]');
+			for (var i = 0; i < candidates.length; i += 1) {
+				if (candidates[i].id === 'root') continue;
+				if (candidates[i].querySelector('[class*="sidebarCol"], [class*="sidebar"]')) {
+					marked = candidates[i];
+					diag.why = 'class-like-frame';
+					break;
+				}
+			}
+		}
+
+		// ③ 最后兜底：第一个子元素（并在诊断里标出，便于定位）
+		if (!marked && root.firstElementChild) {
 			marked = root.firstElementChild;
+			diag.why = 'firstElementChild';
 		}
+
 		// 清理旧标记（避免残留到错误元素上）
 		document.querySelectorAll('[data-aether-frame]').forEach(function (node) {
 			if (node !== marked) { try { node.removeAttribute('data-aether-frame'); } catch (error) { /* ignore */ } }
 		});
 		if (marked && marked.getAttribute('data-aether-frame') !== '1') marked.setAttribute('data-aether-frame', '1');
-	} catch (error) { /* ignore */ }
+
+		diag.marked = marked ? String(marked.className || '').slice(0, 60) : null;
+		diag.rootChild = root.firstElementChild ? String(root.firstElementChild.className || '').slice(0, 60) : null;
+		if (marked) {
+			try {
+				diag.before = String(window.getComputedStyle(marked, '::before').backgroundImage || '').slice(0, 60);
+			} catch (error) { diag.before = 'err'; }
+		}
+	} catch (error) {
+		try { A.frameDiag = { why: 'throw:' + String(error && error.message).slice(0, 60) }; } catch (ignore) { /* ignore */ }
+	}
 }
 
 function aliasCode(alpha) {
