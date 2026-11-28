@@ -579,9 +579,25 @@ function tagAppFrame() {
 	try {
 		var root = document.getElementById('root');
 		if (!root) return;
-		var frame = root.firstElementChild;
-		if (!frame) return;
-		if (frame.getAttribute('data-aether-frame') !== '1') frame.setAttribute('data-aether-frame', '1');
+		// 必须是「真正的 AppFrame」：它包含侧栏列（sidebarCol）。
+		// 之前盲目取 #root.firstElementChild，若结构变化就标错元素，
+		// 宿主 .frame::before（标题栏背景层）不存在 → 标题栏图永远不显示。
+		var marked = null;
+		var candidates = root.querySelectorAll('[class*="frame"], [class*="Frame"]');
+		for (var i = 0; i < candidates.length; i += 1) {
+			var node = candidates[i];
+			if (node.id === 'root') continue;
+			if (node.querySelector('[class*="sidebarCol"], [class*="sidebar"]')) { marked = node; break; }
+		}
+		if (!marked && root.firstElementChild
+			&& root.firstElementChild.querySelector('[class*="sidebarCol"], [class*="sidebar"]')) {
+			marked = root.firstElementChild;
+		}
+		// 清理旧标记（避免残留到错误元素上）
+		document.querySelectorAll('[data-aether-frame]').forEach(function (node) {
+			if (node !== marked) { try { node.removeAttribute('data-aether-frame'); } catch (error) { /* ignore */ } }
+		});
+		if (marked && marked.getAttribute('data-aether-frame') !== '1') marked.setAttribute('data-aether-frame', '1');
 	} catch (error) { /* ignore */ }
 }
 
