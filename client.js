@@ -297,7 +297,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.87';
+		var VERSION = '1.0.88';
 
 		var A = {
 			ctx: null,
@@ -1644,6 +1644,19 @@ window.__ModuleLoader__.load({
 						})(),
 						host: A.host && A.host.remoteWallpaperMode ? A.host.remoteWallpaperMode : null,
 					},
+					titlebarBg: (function () {
+						try {
+							var frame = document.querySelector('[data-aether-frame]');
+							if (!frame) return null;
+							var style = window.getComputedStyle(frame, '::before');
+							return {
+								frameClass: String(frame.className || '').slice(0, 40),
+								hasWindowTitlebar: document.documentElement.hasAttribute('data-windows-titlebar'),
+								image: String(style.backgroundImage || '').slice(0, 80),
+								topbarVar: String(window.getComputedStyle(document.documentElement).getPropertyValue('--aether-topbar-img') || '').slice(0, 80),
+							};
+						} catch (error) { return null; }
+					})(),
 					topbar: {
 						tabs: document.querySelectorAll('[data-conversation-tabs]').length,
 						marked: document.querySelectorAll('[data-aether-topbar]').length,
@@ -2292,9 +2305,25 @@ window.__ModuleLoader__.load({
 			try {
 				var root = document.getElementById('root');
 				if (!root) return;
-				var frame = root.firstElementChild;
-				if (!frame) return;
-				if (frame.getAttribute('data-aether-frame') !== '1') frame.setAttribute('data-aether-frame', '1');
+				// 必须是「真正的 AppFrame」：它包含侧栏列（sidebarCol）。
+				// 之前盲目取 #root.firstElementChild，若结构变化就标错元素，
+				// 宿主 .frame::before（标题栏背景层）不存在 → 标题栏图永远不显示。
+				var marked = null;
+				var candidates = root.querySelectorAll('[class*="frame"], [class*="Frame"]');
+				for (var i = 0; i < candidates.length; i += 1) {
+					var node = candidates[i];
+					if (node.id === 'root') continue;
+					if (node.querySelector('[class*="sidebarCol"], [class*="sidebar"]')) { marked = node; break; }
+				}
+				if (!marked && root.firstElementChild
+					&& root.firstElementChild.querySelector('[class*="sidebarCol"], [class*="sidebar"]')) {
+					marked = root.firstElementChild;
+				}
+				// 清理旧标记（避免残留到错误元素上）
+				document.querySelectorAll('[data-aether-frame]').forEach(function (node) {
+					if (node !== marked) { try { node.removeAttribute('data-aether-frame'); } catch (error) { /* ignore */ } }
+				});
+				if (marked && marked.getAttribute('data-aether-frame') !== '1') marked.setAttribute('data-aether-frame', '1');
 			} catch (error) { /* ignore */ }
 		}
 
@@ -3454,6 +3483,22 @@ window.__ModuleLoader__.load({
 			return target.closest(PRESS_PANE_SELECTOR);
 		}
 
+		/** 侧栏里是否有 position:fixed 后代（有的话不能 transform，否则会被挤出原位）。 */
+		function pressHasFixedChild(pane) {
+			try {
+				var nodes = pane.children;
+				for (var i = 0; i < nodes.length && i < 12; i += 1) {
+					var style = window.getComputedStyle(nodes[i]);
+					if (style.position === 'fixed') return true;
+					var inner = nodes[i].children;
+					for (var j = 0; j < inner.length && j < 12; j += 1) {
+						if (window.getComputedStyle(inner[j]).position === 'fixed') return true;
+					}
+				}
+			} catch (error) { /* ignore */ }
+			return false;
+		}
+
 		function pressNeutral(pane) {
 			if (!pane) return;
 			pressSoftDown(pane, false);
@@ -3479,9 +3524,9 @@ window.__ModuleLoader__.load({
 			PRESS.raf = null;
 			var pane = PRESS.current;
 			if (!pane || !pressTiltable(pane)) return;
-			// 侧栏：任何 transform 都会创建 containing block，把侧栏里 position:fixed 的
-			// 收起按钮挤出顶栏。所以侧栏只做「不产生变换」的按压：内阴影 + 背景压暗。
-			if (pressIsSidebar(pane)) {
+			// 侧栏与输入框用同一套 tilt 参数；但侧栏里有 position:fixed 后代时，
+			// transform 会创建包含块把它们挤出原位 —— 这种情况退回内阴影。
+			if (pressIsSidebar(pane) && pressHasFixedChild(pane)) {
 				pressSoftDown(pane, true);
 				return;
 			}
@@ -4763,6 +4808,19 @@ window.__ModuleLoader__.load({
 		}
 
 		function DiagTab(exportDiag) {
+			try {
+				return renderDiagTab(exportDiag);
+			} catch (error) {
+				// 诊断页自身出错时不能让整个面板消失，把错误显示出来
+				try { pushLog('error', '诊断页渲染失败', { message: String(error && error.message) }); } catch (ignored) { /* ignore */ }
+				return h('div', { className: 'aeth-card' },
+					h('h3', null, '诊断'),
+					h('div', { className: 'aeth-note', style: { color: '#ff9a9a' } }, '渲染失败：' + String(error && error.message)),
+				);
+			}
+		}
+
+		function renderDiagTab(exportDiag) {
 			var diag = A.lastDiag || collectDiag();
 			var anchors = canaryAnchors();
 			var ok = anchors.root && anchors.body && anchors.platform;
