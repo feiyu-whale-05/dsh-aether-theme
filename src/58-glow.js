@@ -135,6 +135,22 @@ function pressFindPane(target) {
 	return target.closest(PRESS_PANE_SELECTOR);
 }
 
+/** 侧栏里是否有 position:fixed 后代（有的话不能 transform，否则会被挤出原位）。 */
+function pressHasFixedChild(pane) {
+	try {
+		var nodes = pane.children;
+		for (var i = 0; i < nodes.length && i < 12; i += 1) {
+			var style = window.getComputedStyle(nodes[i]);
+			if (style.position === 'fixed') return true;
+			var inner = nodes[i].children;
+			for (var j = 0; j < inner.length && j < 12; j += 1) {
+				if (window.getComputedStyle(inner[j]).position === 'fixed') return true;
+			}
+		}
+	} catch (error) { /* ignore */ }
+	return false;
+}
+
 function pressNeutral(pane) {
 	if (!pane) return;
 	pressSoftDown(pane, false);
@@ -160,9 +176,9 @@ function pressApply() {
 	PRESS.raf = null;
 	var pane = PRESS.current;
 	if (!pane || !pressTiltable(pane)) return;
-	// 侧栏：任何 transform 都会创建 containing block，把侧栏里 position:fixed 的
-	// 收起按钮挤出顶栏。所以侧栏只做「不产生变换」的按压：内阴影 + 背景压暗。
-	if (pressIsSidebar(pane)) {
+	// 侧栏与输入框用同一套 tilt 参数；但侧栏里有 position:fixed 后代时，
+	// transform 会创建包含块把它们挤出原位 —— 这种情况退回内阴影。
+	if (pressIsSidebar(pane) && pressHasFixedChild(pane)) {
 		pressSoftDown(pane, true);
 		return;
 	}
