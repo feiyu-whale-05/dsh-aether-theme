@@ -163,6 +163,16 @@ function ensureVideoPlaying() {
 
 function applyWallpaper(reason) {
 	if (A.canary.disabled) return;
+	// 主题引擎整体关闭时绝不能再建舞台层：面板的 mutate 是"先 applyAppearance（拆解）
+	// 再 applyWallpaper"，后者会 ensureStage() 把刚拆掉的舞台又造回来（实测踩到：
+	// data-dsh-aether 已移除，但 #dsh-aether-stage 还在）。
+	var engineDisabled = A.cfg && (A.cfg.enabled === false
+		|| (A.cfg.modules && A.cfg.modules.theme && A.cfg.modules.theme.enabled === false));
+	if (engineDisabled) {
+		clearWallpaperLayers();
+		removeStage();
+		return;
+	}
 	var config = A.cfg && A.cfg.wallpaper;
 	if (!moduleOn('wallpaper') || !config || config.mode === 'none') {
 		clearWallpaperLayers();
