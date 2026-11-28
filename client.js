@@ -297,7 +297,7 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'aether-theme';
 		var STORAGE_KEY = 'dsh-aether:prefs:v1';
-		var VERSION = '1.0.85';
+		var VERSION = '1.0.86';
 
 		var A = {
 			ctx: null,
@@ -1908,13 +1908,32 @@ window.__ModuleLoader__.load({
 				// 用户就找不到重新开启的开关了。视觉层靠移除 data-dsh-aether 属性关掉。
 				ensureStyle();
 				removeStage();
+				// 关掉主题时，所有装饰性内容都必须一起退场：
+				// 指针光晕、悬停下压、流星、粒子/鲸鱼、气泡挂件、消息头像。
+				try { stopGlow(); } catch (error) { /* ignore */ }
+				try { stopPress(); } catch (error) { /* ignore */ }
+				try { stopMeteor(); } catch (error) { /* ignore */ }
+				try { stopFx(); } catch (error) { /* ignore */ }
+				try { whaleStop(); } catch (error) { /* ignore */ }
+				try { clearBubbleDeco(); } catch (error) { /* ignore */ }
+				try {
+					document.querySelectorAll('.aeth-avatar').forEach(function (node) {
+						try { node.remove(); } catch (error) { /* ignore */ }
+					});
+				} catch (error) { /* ignore */ }
+				try { clearTopbarMark(); } catch (error) { /* ignore */ }
 				try {
 					document.documentElement.removeAttribute('data-dsh-aether');
 					document.documentElement.removeAttribute('data-dsh-aether-pixel');
+					document.documentElement.removeAttribute('data-glass-blur');
+					document.documentElement.removeAttribute('data-chrome-blur');
 				} catch (error) { /* ignore */ }
 				notify();
 				return;
 			}
+			// 从关闭状态重新启用：把观察者与特效重新拉起
+			try { startBubbleDeco(); } catch (error) { /* ignore */ }
+			try { startAvatars(); } catch (error) { /* ignore */ }
 			ensureStyle();
 			startCanary();
 			try {
@@ -2236,6 +2255,8 @@ window.__ModuleLoader__.load({
 			try { syncWhale(); } catch (error) { /* ignore */ }
 			try { syncGlowPress(); } catch (error) { /* ignore */ }
 			try { syncMeteor(); } catch (error) { /* ignore */ }
+			try { syncFx(); } catch (error) { /* ignore */ }
+			try { syncWhale(); } catch (error) { /* ignore */ }
 			try { scanBubbleDeco(); } catch (error) { /* ignore */ }
 			try { scanAvatars(); } catch (error) { /* ignore */ }
 
